@@ -16,14 +16,25 @@ beforeAll(async () => {
 afterAll(async () => { await engine.end(); await admin.end(); });
 
 describe('schema coverage', () => {
-  it('every table with a tenant_id column has row-level security on', async () => {
+  it('every table in public has row-level security on', async () => {
     const { rows } = await admin.query(`
       select c.relname from pg_class c
       join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
-      where c.relkind = 'r' and not c.relrowsecurity
-        and (exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'tenant_id' and not a.attisdropped)
-             or c.relname in ('tenants', 'users'))`);
+      where c.relkind = 'r' and not c.relrowsecurity`);
     expect(rows.map((r) => r.relname)).toEqual([]);
+  });
+
+  it('every app function pins its search_path (Supabase advisor 0011)', async () => {
+    const { rows } = await admin.query(`
+      select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'app'
+      where not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')`);
+    expect(rows.map((r) => r.proname)).toEqual([]);
+  });
+
+  it('reference tables are readable by apps but not writable', async () => {
+    const { rows } = await engine.query('select count(*)::int n from gst_rates');
+    expect(rows[0].n).toBeGreaterThan(0);
+    await expectSqlError(engine.query("update credit_prices set credits = 0 where action_code = 'invoice'"), '42501');
   });
 
   it('anon can read nothing at all', async () => {

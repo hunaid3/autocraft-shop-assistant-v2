@@ -10,7 +10,8 @@ Plan: *AutoCraft Shop Assistant — Platform Plan (v2)* (Claude Doc in the Autoc
 
 Phase 1 foundation, database layer:
 
-- [x] Repo scaffold: TypeScript (strict), Vitest, ESLint, CI with Postgres 16
+- [x] Repo scaffold: TypeScript (strict), Vitest, ESLint, CI with Postgres 17
+- [x] Live on Supabase, Mumbai (see below)
 - [x] Schema for every table in the plan's data model, as Supabase migrations
 - [x] Row-level security on every shop table, tested
 - [x] Gapless invoice/quotation numbering per shop, per FY
@@ -24,6 +25,7 @@ Phase 1 foundation, database layer:
 
 ```
 supabase/migrations/   schema, in order: foundation → catalogue → transactions → credits → platform → security
+                       → admin_can_assume_engine → advisor_hardening
 supabase/tests/        local_shim.sql: Supabase's roles, for plain Postgres only
 src/domain/            pure logic: money.ts (paise + GST), format.ts, itemMatch.ts
 src/db/tenantTx.ts     withTenant(): every shop's work runs through this
@@ -65,12 +67,28 @@ Guards beyond RLS:
 - SQL `app.norm_key()` and TS `normKey()` must stay identical (Hindi vowel signs survive).
 - Dates for documents are India dates (`istDate()` / `app.today_ist()`), and `invoices.fy` must match the date.
 
-## Deploying migrations to Supabase
+## Supabase
 
-1. `supabase link --project-ref <mumbai-project>` then `supabase db push` (or apply through the Supabase connector).
-2. Set the engine password yourself, outside the repo:
-   `alter role app_engine password '<from Secrets Manager>';`
-3. The engine's `DATABASE_URL` uses `app_engine`, never `postgres` or the service key.
+| | |
+|---|---|
+| Project | `autocraft-shop-assistant-v2` (ref `epskxazkpxatbtumnhio`) |
+| Organization | Autocraft Solutions |
+| Region | Mumbai, `ap-south-1` |
+| Postgres | 17 (CI also runs 17) |
+| Migrations applied | all 8 in `supabase/migrations/`, file names match the versions Supabase recorded |
+| Security advisor | clean |
+
+Deploying a new migration: add the file here, run `npm run db:local && npm run test:db`, then
+`supabase link --project-ref epskxazkpxatbtumnhio && supabase db push` (or apply it through the connector
+and rename the file to the version Supabase records, so the two never drift).
+
+**Before the engine can connect**, set its password yourself, outside the repo and outside chat:
+
+```sql
+alter role app_engine password '<generate; store in AWS Secrets Manager>';
+```
+
+The engine's `DATABASE_URL` uses `app_engine` through Supavisor, never `postgres` or the service key.
 
 ## Open decisions carried in the schema
 
