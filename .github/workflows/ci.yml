@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PG_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
+      ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/shop
+      DATABASE_URL: postgres://app_engine:app_engine_local@localhost:5432/shop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - name: Apply migrations to a fresh database
+        run: bash scripts/local-db.sh
+      - name: Database tests (isolation, numbering, credits, documents)
+        run: npm run test:db
