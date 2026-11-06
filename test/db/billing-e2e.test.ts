@@ -13,8 +13,20 @@ import { withTenant } from '../../src/db/tenantTx.js';
 import { formatDocNumber, fyOf, istDate } from '../../src/domain/format.js';
 import { APP_SECRET, PHONE_NUMBER_ID, VERIFY_TOKEN, buttonReply, payload, signed, text } from '../fixtures/meta.js';
 import { admin, engine, newItem, newShop, randomPhone } from './helpers.js';
+import { MemoryFileStore } from '../../src/documents/fileStore.js';
+import { chromiumRenderer, type PdfRenderer } from '../../src/documents/pdf.js';
+import { processInvoicePdf } from '../../src/documents/invoiceJob.js';
+import { execFileSync } from 'node:child_process';
 
 const wa = new RecordingClient();
+const store = new MemoryFileStore();
+const chrome = chromiumRenderer();
+let renderFails = 0;
+const renderer: PdfRenderer = {
+  async render(html) { if (renderFails > 0) { renderFails--; throw new Error('chromium crashed'); } return chrome.render(html); },
+  close: () => chrome.close()
+};
+const documents = { renderer, fileStore: store };
 let app: FastifyInstance;
 let worker: Worker;
 let S: Awaited<ReturnType<typeof newShop>>;
@@ -24,6 +36,8 @@ const FY = fyOf(istDate());
 
 beforeAll(async () => {
   S = await newShop('Murtaza Electronics', '36');
+  // a GST-registered shop with a UPI id (the PDF prints a QR)
+  await admin.query("update tenants set gstin = '36AABCU9603R1ZM', upi_id = 'murtaza@okhdfcbank', address = 'Abids, Hyderabad' where id = $1", [S.tenantId]);
   airdopes = await newItem(S.tenantId, 'boAt Airdopes 141', { sale_price_paise: 125000, purchase_price_paise: 85000, unit: 'pcs' });
   cable = await newItem(S.tenantId, 'USB-C Cable', { sale_price_paise: 19900 });
   await withTenant(engine, S.tenantId, async (tx) => {
@@ -31,10 +45,10 @@ beforeAll(async () => {
     await tx.query("insert into stock_ledger (tenant_id, item_id, qty_in, movement_type) values ($1, $2, 20, 'opening'), ($1, $3, 5, 'opening')", [S.tenantId, airdopes, cable]);
   });
   app = buildServer({ pool: engine, appSecret: APP_SECRET, verifyToken: VERIFY_TOKEN, phoneNumberId: PHONE_NUMBER_ID, logLevel: 'silent' });
-  worker = startWorker({ pool: engine, whatsapp: wa, router: shopRouter(new SimpleParser()) },
-    { workerId: 'billing', concurrency: 4, idleMs: 10, backoffSeconds: 0, log: { info() {}, warn() {}, error(...a: unknown[]) { console.error(...a); } } });
+  worker = startWorker({ pool: engine, whatsapp: wa, router: shopRouter(new SimpleParser()), documents },
+    { workerId: 'billing', concurrency: 4, idleMs: 10, backoffSeconds: 0, log: { info() {}, warn() {}, error() {} } });
 });
-afterAll(async () => { await worker.stop(); await app.close(); await engine.end(); await admin.end(); });
+afterAll(async () => { await worker.stop(); await app.close(); await chrome.close(); await engine.end(); await admin.end(); });
 
 /** Send like WhatsApp would, wait for the engine, return the replies to that number. */
 async function say(phone: string, msg: string | { button: string }): Promise<OutboundMessage[]> {
@@ -211,12 +225,12 @@ describe('with the AI reader', () => {
 
     const T = await newShop('AI Shop');
     const item = await newItem(T.tenantId, 'boAt Airdopes 141', { sale_price_paise: 125000 });
-    const aiWorker = startWorker({ pool: engine, whatsapp: wa, router: shopRouter(new OpenAiParser({ apiKey: 'sk-test', fetchImpl: fake })) },
+    const aiWorker = startWorker({ pool: engine, whatsapp: wa, router: shopRouter(new OpenAiParser({ apiKey: 'sk-test', fetchImpl: fake })), documents },
       { workerId: 'ai', concurrency: 1, idleMs: 10, backoffSeconds: 0, log: { info() {}, warn() {}, error() {} } });
     await worker.stop();   // only the AI worker picks up jobs in this test
     try {
       const card = body(await say(T.ownerPhone, 'ravi ko 2 airdops 1300 wale de do'));
-      expect(card).toContain('Invoice* to Ravi');
+      expect(card).toContain('Bill of supply* to Ravi');   // this test shop has no GSTIN
       expect(card).toContain('boAt Airdopes 141 × 2 @ ₹1,300');
       expect(body(await say(T.ownerPhone, 'haan'))).toContain('Invoice *');   // "haan" is a fixed rule: no AI call
       const [inv] = await inShop<{ taxable_paise: string }>(T.tenantId, 'select taxable_paise from invoices');
@@ -225,16 +239,80 @@ describe('with the AI reader', () => {
       expect(Number(sl!.q)).toBe(-2);
     } finally {
       await aiWorker.stop();
-      worker = startWorker({ pool: engine, whatsapp: wa, router: shopRouter(new SimpleParser()) },
+      worker = startWorker({ pool: engine, whatsapp: wa, router: shopRouter(new SimpleParser()), documents },
         { workerId: 'billing', concurrency: 4, idleMs: 10, backoffSeconds: 0, log: { info() {}, warn() {}, error() {} } });
     }
+  });
+});
+
+describe('invoice PDF', () => {
+  const pdfText = (b: Buffer) => { try { return execFileSync('pdftotext', ['-layout', '-', '-'], { input: b }).toString(); } catch { return null; } };
+
+  it('arrives on WhatsApp after Confirm, stored in the shop folder and linked to the invoice', async () => {
+    const uploadsBefore = wa.uploads.length;
+    await say(S.ownerPhone, 'bill Pdf Customer 3 airdopes 141 at 1250');
+    const replies = await say(S.ownerPhone, { button: 'CONFIRM' });
+    expect(body(replies)).toContain('📄 PDF follows.');
+
+    const doc = replies.find((r) => r.kind === 'document') as Extract<OutboundMessage, { kind: 'document' }> | undefined;
+    expect(doc).toBeDefined();
+    const [inv] = await inShop<{ number: string; pdf_file_id: string; id: string }>(S.tenantId, "select id, number, pdf_file_id from invoices where bill_to->>'name' = 'Pdf Customer'");
+    expect(doc!.filename).toBe(inv!.number.replace(/\//g, '-') + '.pdf');
+    expect(doc!.caption).toBe(`🧾 ${inv!.number}: ₹4,425`);
+    expect(doc!.mediaId).toBe(wa.uploads.at(-1)!.mediaId);
+    expect(wa.uploads.length).toBe(uploadsBefore + 1);
+
+    const [file] = await inShop<{ path: string; kind: string; mime: string }>(S.tenantId, 'select path, kind, mime from files where id = $1', [inv!.pdf_file_id]);
+    expect(file).toEqual({ path: `${S.tenantId}/invoices/${doc!.filename}`, kind: 'invoice_pdf', mime: 'application/pdf' });
+    const bytes = await store.get(file!.path);
+    expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
+    const text = pdfText(bytes);
+    if (text) {
+      for (const s of ['TAX INVOICE', inv!.number, 'Murtaza Electronics', '36AABCU9603R1ZM', 'Pdf Customer', 'boAt Airdopes 141', '4,425.00', 'Scan to pay']) expect(text, s).toContain(s);
+    }
+  });
+
+  it('running the PDF job again does nothing (no second file, no second message)', async () => {
+    const [inv] = await inShop<{ id: string }>(S.tenantId, "select id from invoices where bill_to->>'name' = 'Pdf Customer'");
+    const sends = wa.sent.length;
+    expect(await processInvoicePdf({ pool: engine, ...documents }, { kind: 'invoice_pdf', tenant_id: S.tenantId, invoice_id: inv!.id, notify_phone: S.ownerPhone })).toBe('already_done');
+    await worker.drained();
+    expect(wa.sent.length).toBe(sends);
+  });
+
+  it('if Chromium crashes, the PDF is retried; the invoice is already safe', async () => {
+    renderFails = 2;
+    await say(S.ownerPhone, 'bill Crash Customer 1 airdopes 141');
+    const replies = await say(S.ownerPhone, 'yes');
+    expect(body(replies)).toContain('✅ Invoice');
+    expect(replies.some((r) => r.kind === 'document')).toBe(true);
+    expect(renderFails).toBe(0);
+  });
+
+  it('a shop without GSTIN issues a bill of supply: no GST charged or printed', async () => {
+    const T = await newShop('Small Kirana');
+    await newItem(T.tenantId, 'Sugar 1kg', { sale_price_paise: 4800, unit: 'kg' });
+    const card = body(await say(T.ownerPhone, 'bill 5 sugar'));
+    expect(card).toContain('Bill of supply');
+    expect(card).toContain('Total ₹240');
+    expect(card).toContain('No GST charged');
+    const replies = await say(T.ownerPhone, 'yes');
+    const [inv] = await inShop<{ cgst_paise: string; sgst_paise: string; total_paise: string; pdf_file_id: string }>(T.tenantId, 'select cgst_paise, sgst_paise, total_paise, pdf_file_id from invoices');
+    expect(inv).toMatchObject({ cgst_paise: '0', sgst_paise: '0', total_paise: '24000' });
+    const [file] = await inShop<{ path: string }>(T.tenantId, 'select path from files where id = $1', [inv!.pdf_file_id]);
+    const text = pdfText(await store.get(file!.path));
+    if (text) {
+      expect(text).toContain('BILL OF SUPPLY');
+      expect(text).not.toMatch(/CGST|SGST|TAX INVOICE/);
+    }
+    expect(replies.some((r) => r.kind === 'document')).toBe(true);
   });
 });
 
 describe('questions are free', () => {
   it('stock, sales and credits', async () => {
     const before = await balance();
-    expect(body(await say(S.ownerPhone, 'stock of airdopes 141'))).toContain('In stock: 60 pcs');
+    expect(body(await say(S.ownerPhone, 'stock of airdopes 141'))).toContain('In stock: 56 pcs'); // 60 after the purchase, minus 4 sold in the PDF tests
     expect(body(await say(S.ownerPhone, 'sales today'))).toMatch(/Invoices: \d+\nBilled total: ₹/);
     expect(body(await say(S.ownerPhone, 'credits'))).toContain(`Credits: ${before}`);
     expect(body(await say(S.ownerPhone, 'low stock'))).toContain('no reorder level set');

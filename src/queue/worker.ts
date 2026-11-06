@@ -1,6 +1,9 @@
 /**
- * Runs N loops that claim and process jobs from both queues. Each sender's jobs run strictly in
- * order (the database enforces it); different senders run in parallel.
+ * Runs N loops that claim and process jobs. Queues:
+ *   inbound   — one per WhatsApp message (strictly in order per sender)
+ *   outbound  — one per reply (in order per recipient)
+ *   documents — PDFs to make (only when this process has a renderer)
+ * Different senders run in parallel; the database enforces the per-sender order.
  */
 import { claim, complete, fail, requeueStale, type Job } from './queue.js';
 import { noopReporter, type ErrorReporter } from '../observability.js';
@@ -8,11 +11,14 @@ import {
   onInboundParked, PermanentError, processInbound, processOutbound,
   type EngineDeps, type InboundPayload, type OutboundPayload
 } from '../engine/process.js';
+import { processInvoicePdf, type InvoicePdfPayload } from '../documents/invoiceJob.js';
+
+export type QueueName = 'inbound' | 'outbound' | 'documents';
 
 export interface WorkerOptions {
   workerId: string;
   concurrency: number;
-  idleMs?: number;              // poll interval when both queues are empty
+  idleMs?: number;              // poll interval when the queues are empty
   backoffSeconds?: number;      // retry n waits n × this
   staleLease?: string;          // e.g. '2 minutes'
   log?: Pick<Console, 'info' | 'warn' | 'error'>;
@@ -22,9 +28,9 @@ export interface WorkerOptions {
 
 export interface Worker {
   stop(): Promise<void>;
-  /** Resolves once both queues have no queued or running jobs (tests and the simulator). */
+  /** Resolves once the queues this worker serves have no queued or running jobs (tests, simulator). */
   drained(timeoutMs?: number): Promise<void>;
-  readonly stats: { inbound: number; outbound: number; retried: number; parked: number };
+  readonly stats: { inbound: number; outbound: number; documents: number; retried: number; parked: number };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -34,7 +40,7 @@ function idsOf(payload: unknown): Record<string, string | null> {
   if (typeof payload !== 'object' || payload === null) return {};
   const p = payload as Record<string, unknown>;
   const out: Record<string, string | null> = {};
-  for (const k of ['message_id', 'outbound_id', 'tenant_id'] as const) if (k in p) out[k] = p[k] == null ? null : String(p[k]);
+  for (const k of ['message_id', 'outbound_id', 'tenant_id', 'invoice_id'] as const) if (k in p) out[k] = p[k] == null ? null : String(p[k]);
   return out;
 }
 
@@ -42,15 +48,27 @@ export function startWorker(deps: EngineDeps, opts: WorkerOptions): Worker {
   const log = opts.log ?? console;
   const reporter = opts.reporter ?? noopReporter;
   const idle = opts.idleMs ?? 250;
-  const stats = { inbound: 0, outbound: 0, retried: 0, parked: 0 };
+  const stats = { inbound: 0, outbound: 0, documents: 0, retried: 0, parked: 0 };
+  const queues: QueueName[] = deps.documents ? ['inbound', 'outbound', 'documents'] : ['inbound', 'outbound'];
   let running = true;
 
-  async function runOne(queue: 'inbound' | 'outbound'): Promise<boolean> {
-    const job = await claim<InboundPayload & OutboundPayload>(deps.pool, opts.workerId, queue);
+  async function process(queue: QueueName, payload: unknown): Promise<void> {
+    switch (queue) {
+      case 'inbound': await processInbound(deps, payload as InboundPayload); return;
+      case 'outbound': await processOutbound(deps, payload as OutboundPayload); return;
+      case 'documents': {
+        const p = payload as InvoicePdfPayload;
+        if (p.kind !== 'invoice_pdf') throw new PermanentError(`unknown document job ${String(p.kind)}`);
+        await processInvoicePdf({ pool: deps.pool, ...deps.documents! }, p);
+      }
+    }
+  }
+
+  async function runOne(queue: QueueName): Promise<boolean> {
+    const job = await claim<unknown>(deps.pool, opts.workerId, queue);
     if (!job) return false;
     try {
-      if (queue === 'inbound') await processInbound(deps, job.payload as InboundPayload);
-      else await processOutbound(deps, job.payload as OutboundPayload);
+      await process(queue, job.payload);
       await complete(deps.pool, job.id);
       stats[queue]++;
     } catch (e) {
@@ -59,7 +77,7 @@ export function startWorker(deps: EngineDeps, opts: WorkerOptions): Worker {
     return true;
   }
 
-  async function handleFailure(queue: string, job: Job<unknown>, e: unknown): Promise<void> {
+  async function handleFailure(queue: QueueName, job: Job<unknown>, e: unknown): Promise<void> {
     const msg = e instanceof Error ? e.message : String(e);
     const ids = { job_id: job.id, ...idsOf(job.payload) };
     if (e instanceof PermanentError) {
@@ -81,12 +99,13 @@ export function startWorker(deps: EngineDeps, opts: WorkerOptions): Worker {
   }
 
   async function loop(i: number): Promise<void> {
-    let turn = i % 2;
+    let turn = i;
     while (running) {
       try {
-        // Alternate queues so replies keep flowing while inbound is busy.
-        const first = turn++ % 2 === 0 ? 'inbound' : 'outbound';
-        const didWork = (await runOne(first)) || (await runOne(first === 'inbound' ? 'outbound' : 'inbound'));
+        // Start from a different queue each round so replies and PDFs keep flowing while inbound is busy.
+        let didWork = false;
+        for (let k = 0; k < queues.length && !didWork; k++) didWork = await runOne(queues[(turn + k) % queues.length]!);
+        turn++;
         if (!didWork) await sleep(idle);
       } catch (e) {
         log.error({ err: e instanceof Error ? e.message : String(e) }, 'worker loop error');
@@ -115,7 +134,7 @@ export function startWorker(deps: EngineDeps, opts: WorkerOptions): Worker {
       const until = Date.now() + timeoutMs;
       for (;;) {
         const { rows } = await deps.pool.query(
-          "select count(*)::int n from jobs where queue in ('inbound', 'outbound') and status in ('queued', 'running')");
+          "select count(*)::int n from jobs where queue = any($1) and status in ('queued', 'running')", [queues]);
         if (rows[0].n === 0) return;
         if (Date.now() > until) throw new Error(`queue not drained: ${rows[0].n} jobs left`);
         await sleep(100);

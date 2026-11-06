@@ -6,12 +6,15 @@
 export type OutboundMessage =
   | { kind: 'text'; to: string; text: string }
   | { kind: 'buttons'; to: string; text: string; buttons: Array<{ id: string; title: string }> }
-  | { kind: 'document'; to: string; caption?: string; filename: string; mediaId: string };
+  // A stored file (fileId) is uploaded to Meta at send time, which turns it into a mediaId.
+  | { kind: 'document'; to: string; caption?: string; filename: string; mediaId?: string; fileId?: string };
 
 export interface SendResult { waMessageId: string }
 
 export interface WhatsAppClient {
   send(msg: OutboundMessage): Promise<SendResult>;
+  /** Upload a file to Meta (kept 30 days) and get the media id to send it with. */
+  uploadMedia(bytes: Buffer, mime: string, filename: string): Promise<string>;
 }
 
 export class WhatsAppSendError extends Error {
@@ -34,6 +37,7 @@ export function toCloudApiBody(msg: OutboundMessage): Record<string, unknown> {
         }
       };
     case 'document':
+      if (!msg.mediaId) throw new Error('document has no mediaId: upload it first');
       return { ...base, type: 'document', document: { id: msg.mediaId, filename: msg.filename, caption: msg.caption?.slice(0, 1024) } };
   }
 }
@@ -57,13 +61,36 @@ export class CloudApiClient implements WhatsAppClient {
     }
     return { waMessageId: body.messages[0].id };
   }
+
+  async uploadMedia(bytes: Buffer, mime: string, filename: string): Promise<string> {
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mime);
+    form.append('file', new Blob([new Uint8Array(bytes)], { type: mime }), filename);
+    const res = await fetch(`https://graph.facebook.com/${this.opts.graphVersion}/${this.opts.phoneNumberId}/media`, {
+      method: 'POST', headers: { authorization: `Bearer ${this.opts.accessToken}` }, body: form,
+      signal: AbortSignal.timeout(this.opts.timeoutMs ?? 30_000)
+    });
+    const body = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+    if (!res.ok || !body.id) {
+      throw new WhatsAppSendError(`WhatsApp media upload failed (${res.status}): ${body.error?.message ?? 'no media id'}`, res.status, res.status === 429 || res.status >= 500);
+    }
+    return body.id;
+  }
 }
 
 /** For tests and the simulator: records every send, optionally failing on demand. */
 export class RecordingClient implements WhatsAppClient {
   readonly sent: OutboundMessage[] = [];
+  readonly uploads: Array<{ bytes: Buffer; mime: string; filename: string; mediaId: string }> = [];
   private n = 0;
   failNext = 0;
+
+  async uploadMedia(bytes: Buffer, mime: string, filename: string): Promise<string> {
+    const mediaId = `media.${++this.n}`;
+    this.uploads.push({ bytes, mime, filename, mediaId });
+    return mediaId;
+  }
 
   async send(msg: OutboundMessage): Promise<SendResult> {
     if (this.failNext > 0) {

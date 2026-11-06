@@ -8,6 +8,8 @@ import { formatDocNumber, formatInr, fyOf, istDate } from '../domain/format.js';
 import { normKey } from '../domain/itemMatch.js';
 import { ACTION_FOR, qtyText, type DraftLine, type DraftPayload, type NewItem } from './drafts.js';
 import { stockMap, type Shop } from './shop.js';
+import { enqueue } from '../queue/queue.js';
+import type { InvoicePdfPayload } from '../documents/invoiceJob.js';
 
 /** A refusal the person should read, not a fault: the confirm is rolled back and they are told why. */
 export class UserError extends Error {}
@@ -76,7 +78,7 @@ async function stockAfter(tx: Tx, lines: Array<{ itemId: string | null; name: st
 const creditsLine = (cost: number, balance: number) => (cost ? `\n💳 ${cost} credit${cost === 1 ? '' : 's'} used · balance ${balance}` : '');
 const createdLine = (names: string[]) => (names.length ? `\n🆕 Added to items: ${names.join(', ')}` : '');
 
-async function commitInvoice(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'invoice' }>, cost: number, userId: string): Promise<CommitResult> {
+async function commitInvoice(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'invoice' }>, cost: number, userId: string, phone: string | null): Promise<CommitResult> {
   const created = await ensureItems(tx, shop.id, d.lines, 'sale', userId);
   const party = await upsertParty(tx, shop.id, 'customer', d.party);
   const date = istDate();
@@ -102,10 +104,13 @@ async function commitInvoice(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind
     await tx.query('update items set sale_price_paise = $2 where id = $1 and sale_price_paise = 0', [l.itemId, l.ratePaise]);
   }
   const balance = await debit(tx, shop.id, cost, ACTION_FOR.invoice, 'invoice', invoiceId, userId);
+  // The PDF is made after this commits (documents queue), in the same all-or-nothing transaction.
+  await enqueue(tx, `invoice:${invoiceId}`,
+    { kind: 'invoice_pdf', tenant_id: shop.id, invoice_id: invoiceId, notify_phone: phone } satisfies InvoicePdfPayload, 'documents');
   return {
     refType: 'invoice', refId: invoiceId, balance,
     reply: `✅ Invoice *${number}*: ₹${formatInr(t.totalPaise)}${party.name ? ' to ' + party.name : ''}` +
-      createdLine(created) + '\n' + (await stockAfter(tx, d.lines)) + creditsLine(cost, balance)
+      createdLine(created) + '\n' + (await stockAfter(tx, d.lines)) + creditsLine(cost, balance) + '\n📄 PDF follows.'
   };
 }
 
@@ -171,9 +176,9 @@ async function commitStockCount(tx: Tx, shop: Shop, d: Extract<DraftPayload, { k
   return { refType: 'stock_count', refId: ref[0].id, balance, reply: '✅ Stock updated.' + createdLine(created) + '\n' + (await stockAfter(tx, d.lines)) + creditsLine(cost, balance) };
 }
 
-export async function commitDraft(tx: Tx, shop: Shop, payload: DraftPayload, cost: number, userId: string): Promise<CommitResult> {
+export async function commitDraft(tx: Tx, shop: Shop, payload: DraftPayload, cost: number, userId: string, phone: string | null = null): Promise<CommitResult> {
   switch (payload.kind) {
-    case 'invoice': return commitInvoice(tx, shop, payload, cost, userId);
+    case 'invoice': return commitInvoice(tx, shop, payload, cost, userId, phone);
     case 'purchase': return commitPurchase(tx, shop, payload, cost, userId);
     case 'expense': return commitExpense(tx, shop, payload, cost, userId);
     case 'stock_count': return commitStockCount(tx, shop, payload, cost, userId);

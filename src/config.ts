@@ -18,6 +18,10 @@ const schema = z.object({
   OPENAI_API_KEY: z.string().min(20).optional(),
   // Check developers.openai.com/api/docs/models before changing; must support Structured Outputs.
   OPENAI_MODEL: z.string().default('gpt-6-luna'),
+  // Files (PDFs, bill photos) in Supabase Storage. The secret key is used for storage only.
+  SUPABASE_URL: z.string().url().default('https://epskxazkpxatbtumnhio.supabase.co'),
+  SUPABASE_SECRET_KEY: z.string().min(20).optional(),
+  CHROME_PATH: z.string().optional(),   // headless Chromium for PDFs; the container sets it
   SENTRY_DSN: z.string().url().optional(),
   APP_ENV: z.enum(['production', 'staging', 'development']).default('development'),
   RELEASE: z.string().optional(),   // git sha, set by the deploy

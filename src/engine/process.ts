@@ -17,11 +17,15 @@ import type { InboundMessage } from '../webhook/parse.js';
 import { WhatsAppSendError, type OutboundMessage, type WhatsAppClient } from '../whatsapp/client.js';
 import { resolveSender } from './senders.js';
 import type { Reply, Router } from './router.js';
+import type { FileStore } from '../documents/fileStore.js';
+import type { PdfRenderer } from '../documents/pdf.js';
 
 export interface EngineDeps {
   pool: pg.Pool;
   whatsapp: WhatsAppClient;
   router: Router;
+  /** PDFs: needed for the 'documents' queue and for sending stored files */
+  documents?: { renderer: PdfRenderer; fileStore: FileStore };
 }
 
 export interface InboundPayload { message_id: string }
@@ -75,7 +79,16 @@ export async function processOutbound(deps: EngineDeps, p: OutboundPayload): Pro
 
   let waMessageId: string;
   try {
-    ({ waMessageId } = await deps.whatsapp.send(found.rows[0].payload as OutboundMessage));
+    let msg = found.rows[0].payload as OutboundMessage;
+    if (msg.kind === 'document' && !msg.mediaId && msg.fileId) {
+      // Stored file → upload to Meta now (media ids expire after 30 days, so never stored)
+      if (!deps.documents) throw new Error('documents not configured');
+      const file = await within((tx) => tx.query('select path, mime from files where id = $1', [msg.kind === 'document' ? msg.fileId : null]));
+      if (!file.rowCount) throw new PermanentError('file not found');
+      const bytes = await deps.documents.fileStore.get(file.rows[0].path);
+      msg = { ...msg, mediaId: await deps.whatsapp.uploadMedia(bytes, file.rows[0].mime, msg.filename) };
+    }
+    ({ waMessageId } = await deps.whatsapp.send(msg));
   } catch (e) {
     if (e instanceof WhatsAppSendError && !e.retryable) {
       await within((tx) => tx.query("update messages set status = 'failed', error = $2 where id = $1", [p.outbound_id, e.message]));

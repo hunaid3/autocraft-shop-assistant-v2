@@ -72,7 +72,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number } = {}): 
         if (d.expired) return text('That entry waited too long (drafts last 10 minutes), so nothing was saved. Please send it again.');
         await tx.query('savepoint confirm_draft');
         try {
-          const r = await commitDraft(tx, shop, d.payload, d.cost, sender.userId);
+          const r = await commitDraft(tx, shop, d.payload, d.cost, sender.userId, sender.phone);
           await tx.query('release savepoint confirm_draft');
           await resolveDraft(tx, d.id, 'confirmed');
           await tx.query(

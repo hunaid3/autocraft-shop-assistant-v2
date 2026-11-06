@@ -54,7 +54,13 @@ Phase 2, slice 1 (core loop):
 - [x] Confirm in one transaction: invoice number, invoice + lines, stock out, new items, customer, credits; Cancel and Edit
 - [x] Purchases (duplicate supplier bill refused, not charged), expenses, stock counts; owner-only where Code.gs had it
 - [x] Refusals answered, not failed: not enough credits (draft kept), bill already entered, stock blocked by shop setting
-- [ ] Next: invoice PDFs, bill photo reading (same model, image input), stock out without a bill, quotations
+- [x] Invoice PDFs: one HTML template (`src/documents/invoiceHtml.ts`) rendered by headless Chromium with JavaScript
+      off and all network blocked; fonts (incl. Devanagari, ₹) and the UPI QR are embedded, the QR made locally.
+      Made after Confirm via the `documents` queue, stored privately in Supabase Storage `shop-files/<tenant>/invoices/`,
+      linked to the invoice, uploaded to WhatsApp and sent as a document. Safe to retry; a render crash never affects the bill.
+- [x] Shops without a GSTIN issue a **bill of supply**: no GST charged on the card, the invoice or the PDF
+- [ ] Next: bill photo reading (same model, image input), stock out without a bill, quotations
+- [ ] Before launch: CA review of the PDF layout; invoice prefixes ≤ 3 characters keep numbers within the 16-character legal limit
 
 ## WhatsApp (Meta Cloud API)
 

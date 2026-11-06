@@ -96,7 +96,9 @@ async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice'
     const saved = item ? (kind === 'purchase' ? item.purchasePricePaise : item.salePricePaise) : 0;
     const ratePaise = r.ratePaise ?? saved;
     if (!(ratePaise > 0)) return { error: `What rate for ${name}? ${item ? 'No price is saved for it yet.' : "It's a new item, so there's no saved price yet."}` };
-    const gstRate = r.gstRate ?? item?.gstRate ?? newItem!.gstRate;
+    // A shop without a GSTIN cannot charge GST: its sales are bills of supply. Purchases still record
+    // the GST its supplier charged (part of the cost). New items keep their rate for when it registers.
+    const gstRate = kind === 'invoice' && !shop.gstin ? 0 : r.gstRate ?? item?.gstRate ?? newItem!.gstRate;
     let a;
     try {
       a = lineAmounts({ qty: r.qty, ratePaise, discountPaise: r.discountPaise ?? 0, gstRate, pricesIncludeGst: shop.settings.pricesIncludeGst });
@@ -180,9 +182,12 @@ export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Bu
     const supply = supplyType(shop.stateCode, buyerState);
     const totals = docTotals(lines, supply);
     const cost = await creditCost(tx, ACTION_FOR.invoice);
-    const head = `🧾 *Invoice*${intent.party.name ? ' to ' + intent.party.name : ' (walk-in customer)'}` +
-      (intent.party.gstin ? `\nGSTIN ${intent.party.gstin}` : '') +
-      `\nTaxable ₹${formatInr(totals.taxablePaise)} + ${supply === 'intra' ? 'CGST/SGST' : 'IGST'} ₹${formatInr(totals.cgstPaise + totals.sgstPaise + totals.igstPaise)} · *Total ₹${formatInr(totals.totalPaise)}*`;
+    const head = shop.gstin
+      ? `🧾 *Invoice*${intent.party.name ? ' to ' + intent.party.name : ' (walk-in customer)'}` +
+        (intent.party.gstin ? `\nGSTIN ${intent.party.gstin}` : '') +
+        `\nTaxable ₹${formatInr(totals.taxablePaise)} + ${supply === 'intra' ? 'CGST/SGST' : 'IGST'} ₹${formatInr(totals.cgstPaise + totals.sgstPaise + totals.igstPaise)} · *Total ₹${formatInr(totals.totalPaise)}*`
+      : `🧾 *Bill of supply*${intent.party.name ? ' to ' + intent.party.name : ' (walk-in customer)'}` +
+        `\n*Total ₹${formatInr(totals.totalPaise)}*\n_No GST charged: your shop has no GSTIN saved._`;
     return { ok: true, cost, balance, summary: cardText(head, lines.map(lineText), warn, costLine(cost, balance)),
       payload: { kind: 'invoice', party: { name: intent.party.name, gstin: intent.party.gstin, stateCode: buyerState }, supply, placeOfSupply: buyerState ?? shop.stateCode, lines, totals } };
   }
