@@ -406,7 +406,8 @@
     RENDER.stock();
   }));
   $('app').addEventListener('click', async (e) => {
-    const t = e.target.closest('button'); if (!t || t.type === 'submit') return;
+    // buttons without a type attribute are type=submit, so skip only the settings form's own buttons
+    const t = e.target.closest('button'); if (!t || t.closest('#settingsForm')) return;
     if (t.dataset.pdf) return openPdf(t);
     if (t.dataset.csv) return download(t.dataset.csv, t);
     if (t.dataset.close) { await json(`/admin/support/${t.dataset.close}/close`, { method: 'POST', body: '{}' }).catch(showError); loaded.delete('admin'); return loadAdmin(); }
