@@ -144,6 +144,12 @@ Phase 2, slice 1 (core loop):
 - [ ] Backlog (6 Nov): item upload price boundary. Agreed rule: up to 10 items = 10 credits, more than 10 = 25.
       Today a file of exactly 10 items is charged 25 (`SMALL_IMPORT_BELOW` in `src/engine/itemImport.ts` compares
       `< 10`); change to `<= 10` and update the help texts, ToS and tests.
+- [ ] Backlog (7 Nov): the AI reader only knows the original intents (`OUT.type` in `src/engine/aiParser.ts`: bills,
+      purchases, stock, quotes, questions, help). Free-text questions about newer features (item upload format,
+      add/switch shop, staff, recharge, dashboard, support, shop details, help topics) fall back to the generic
+      help/greeting reply. Example: "I want to upload an excel with inventory details, can you suggest the format of
+      columns required?" → greeting. Fix: add those intents (or a `how_to` topic field) to the schema and prompt,
+      map them to the existing handlers, and add tests with natural phrasings (English and Hinglish).
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)
