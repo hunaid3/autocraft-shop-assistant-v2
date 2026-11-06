@@ -12,6 +12,7 @@ import { chromiumRenderer } from './documents/pdf.js';
 import { SupabaseFileStore } from './documents/fileStore.js';
 import { OpenAiBillReader } from './engine/billReader.js';
 import { prepareRuntimeEnv } from './runtimeEnv.js';
+import { checkMeta } from './whatsapp/metaCheck.js';
 
 // In AWS only the database password is given; the rest comes from Supabase Vault.
 const db = await prepareRuntimeEnv(process.env, (m) => console.log(JSON.stringify({ level: 30, msg: m })));
@@ -63,6 +64,10 @@ process.on('uncaughtException', async (e) => {
 });
 
 await server.listen({ host: '0.0.0.0', port: config.PORT });
+
+// Is the WhatsApp token accepted, and which number is this? Logged at every start; not fatal.
+void checkMeta({ accessToken: config.META_ACCESS_TOKEN, phoneNumberId: config.META_PHONE_NUMBER_ID, graphVersion: config.META_GRAPH_VERSION })
+  .then((r) => (r.ok ? server.log.info({ meta: r.detail }, 'whatsapp connection ok') : server.log.error({ meta: r.detail }, 'whatsapp connection failed')));
 
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   process.once(sig, async () => {
