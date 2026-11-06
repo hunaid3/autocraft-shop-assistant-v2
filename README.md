@@ -82,11 +82,13 @@ Deploying a new migration: add the file here, run `npm run db:local && npm run t
 `supabase link --project-ref epskxazkpxatbtumnhio && supabase db push` (or apply it through the connector
 and rename the file to the version Supabase records, so the two never drift).
 
-**Before the engine can connect**, set its password yourself, outside the repo and outside chat:
+**Engine password:** set on 6 Nov 2026, generated inside the database and stored in
+Supabase Vault as `autocraft_v2_db_engine` (Dashboard → Project Settings → Vault). It has never
+appeared in chat or in this repo.
 
-```sql
-alter role app_engine password '<generate; store in AWS Secrets Manager>';
-```
+**TODO once the AWS account is active:** copy it into AWS Secrets Manager (Mumbai) as
+`autocraft/v2/db-engine` with keys `username=app_engine`, `password=…`; the engine reads it from there.
+To rotate, run the same block again after dropping the Vault entry, then update Secrets Manager.
 
 The engine's `DATABASE_URL` uses `app_engine` through Supavisor, never `postgres` or the service key.
 
