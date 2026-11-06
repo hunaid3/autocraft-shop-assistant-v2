@@ -78,7 +78,15 @@ Phase 2, slice 1 (core loop):
       *revise quote 1 …* issues `…-R1` and marks the old one superseded. *convert quote 1* makes the invoice at the quoted
       rates (3 credits), moves stock, links invoice and lines to the quote, and closes it; a superseded, billed or
       changed-since-the-card quote is refused. *quotes* lists the open ones with expiry.
-- [ ] Next: onboarding new shops on WhatsApp (Phase 4), recharges (Phase 3)
+- [x] **Sign-up on WhatsApp** (Phase 4, chat version): an unknown number gets an intro with *Start free*;
+      then shop name → GSTIN (optional; format and check character verified, state taken from it) → state (only
+      without GSTIN; names, codes and short forms like TS/MH) → UPI (optional) → summary → *Create shop*.
+      `app.provision_tenant` creates shop, settings, owner, wallet and 100 credits. Answers kept 24 h in
+      `signup_sessions` (engine only); *cancel* stops. A WhatsApp Flows form can replace the questions later.
+- [x] **Shop details** (owner, free, confirm card): *profile*; *update gstin …* / *my gst number is …* (state
+      follows the GSTIN), *remove gstin*, *update address|upi|phone|email|shop name …*; a photo with caption
+      *logo* sets the logo on PDFs. "How do I add my GST number?" gets the how-to.
+- [ ] Next: staff (*add staff*), bulk item upload, dashboard (Phase 5), recharges (Phase 3)
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

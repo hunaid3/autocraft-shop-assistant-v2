@@ -6,6 +6,7 @@
  *      OpenAI key is set, returning the same Intent shapes.
  */
 import { toPaise } from '../domain/money.js';
+import { findGstin } from '../domain/gstin.js';
 import type { Intent, LineIntent, ParseContext, Parser, PeriodName, PartyIntent, QtyLine, StockOutReason } from './intents.js';
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -20,7 +21,36 @@ const PERIODS: Array<[RegExp, PeriodName]> = [
 ];
 
 /** Exact commands. Returns null when the message needs real understanding. */
+/** Shop details: "update gstin 36…", "my gst number is …", "update address …", "remove gstin". Original case kept. */
+export function profileRules(text: string): Intent | null {
+  const raw = text.trim().replace(/[.!]+$/, '');
+  const t = raw.toLowerCase();
+  if (/^(profile|my shop|shop details|shop profile|business details|my details|shop info)$/.test(t)) return { type: 'profile_show' };
+  if (/^(remove|delete|clear)\s+(?:my\s+|the\s+)?gst(?:in)?(?:\s+number)?$/.test(t)) return { type: 'profile_update', field: 'gstin', value: null };
+  const verb = String.raw`(?:update|change|set|add|edit|save|my|our|shop)`;
+  const g = findGstin(raw);
+  if (g && new RegExp(String.raw`^(?:${verb}\b|gst|gstin)`).test(t) && /\bgst/.test(t)) return { type: 'profile_update', field: 'gstin', value: g };
+  const m = (re: RegExp) => re.exec(raw)?.[1]?.trim();
+  const sep = String.raw`\s*(?:to|:|-|=|is)?\s*`;
+  const address = m(new RegExp(String.raw`^(?:update|change|set|add|edit)\s+(?:my\s+|the\s+|shop\s+)?address${sep}(.{5,})$`, 'is'));
+  if (address) return { type: 'profile_update', field: 'address', value: address };
+  const upi = m(new RegExp(String.raw`^(?:update|change|set|add|edit)\s+(?:my\s+|the\s+|shop\s+)?upi(?:\s+id)?${sep}(\S+)$`, 'i'));
+  if (upi) return { type: 'profile_update', field: 'upi', value: upi };
+  const name = m(new RegExp(String.raw`^(?:update|change|set|edit)\s+(?:my\s+|the\s+)?(?:shop|business|firm)\s+name${sep}(.{2,})$`, 'i'));
+  if (name) return { type: 'profile_update', field: 'name', value: name };
+  const phone = m(new RegExp(String.raw`^(?:update|change|set|add|edit)\s+(?:my\s+|the\s+|shop\s+)?(?:phone|mobile|contact)(?:\s+(?:number|no\.?))?${sep}([+\d][\d\s-]{7,16})$`, 'i'));
+  if (phone) return { type: 'profile_update', field: 'phone', value: phone };
+  const email = m(new RegExp(String.raw`^(?:update|change|set|add|edit)\s+(?:my\s+|the\s+|shop\s+)?e-?mail(?:\s+id)?${sep}(\S+@\S+)$`, 'i'));
+  if (email) return { type: 'profile_update', field: 'email', value: email };
+  // "how do I add my GST number?" with no number in it
+  if (/\b(gst|gstin|address|upi|logo|shop name|business name)\b/.test(t) && /\b(how|where|add|update|change|set|edit)\b/.test(t) && !g
+      && !/^(bill|invoice|sale|sold|sell|quote|quotation|estimate|bought|purchase)\b/.test(t)) return { type: 'how_to', about: 'profile' };
+  return null;
+}
+
 export function fixedRules(text: string): Intent | null {
+  const profile = profileRules(text);
+  if (profile) return profile;
   const t = lower(text).replace(/[.!?]+$/, '');
   if (!t) return { type: 'unknown' };
   if (YES.test(t)) return { type: 'confirm' };

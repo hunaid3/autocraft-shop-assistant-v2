@@ -57,7 +57,7 @@ export const phase1Router: Router = async ({ sender, message }) => {
     return [{
       kind: 'text',
       text: '👋 Welcome to *AutoCraft Shop Assistant*: billing, stock and GST invoices on WhatsApp.\n\n' +
-        'This number is not registered yet. Self sign-up is coming soon; until then, ask AutoCraft to add your shop.'
+        'This number is not registered yet. Send *Hi* to set up your shop in a minute.'
     }];
   }
 

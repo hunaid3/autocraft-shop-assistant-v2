@@ -6,7 +6,7 @@
 import type { Tx } from '../db/tenantTx.js';
 import { formatDocNumber, formatInr, fyOf, istDate } from '../domain/format.js';
 import { normKey } from '../domain/itemMatch.js';
-import { ACTION_FOR, actionFor, openForReturn, qtyText, STAYS_OPEN, type DraftLine, type DraftPayload, type NewItem } from './drafts.js';
+import { ACTION_FOR, actionFor, openForReturn, PROFILE_LABEL, qtyText, STAYS_OPEN, type DraftLine, type DraftPayload, type NewItem } from './drafts.js';
 import { REASON_LABEL } from './intents.js';
 import { stockMap, type Shop } from './shop.js';
 import { enqueue } from '../queue/queue.js';
@@ -301,6 +301,22 @@ async function commitStockReturn(tx: Tx, shop: Shop, d: Extract<DraftPayload, { 
   return { refType: 'stock_adjustment', refId: first!, balance, reply: `✅ Back in stock${d.party ? ' from ' + d.party : ''}.\n` + (await stockAfter(tx, d.lines)) + creditsLine(cost, balance) };
 }
 
+const PROFILE_COLUMN = { gstin: 'gstin', address: 'address', upi: 'upi_id', name: 'name', phone: 'phone', email: 'email' } as const;
+
+async function commitProfile(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'profile_update' }>, userId: string): Promise<CommitResult> {
+  const col = PROFILE_COLUMN[d.field];
+  if (d.field === 'gstin' && d.stateCode) {
+    await tx.query('update tenants set gstin = $2, state_code = $3 where id = $1', [shop.id, d.value, d.stateCode]);
+  } else {
+    await tx.query(`update tenants set ${col} = $2 where id = $1`, [shop.id, d.value]);
+  }
+  await tx.query(
+    "insert into audit_log (tenant_id, actor_kind, actor_user_id, action, entity_type, entity_id, detail) values ($1, 'user', $2, 'tenant.update', 'tenant', $1, $3)",
+    [shop.id, userId, JSON.stringify({ field: d.field })]);
+  const { rows: [b] } = await tx.query('select balance from credit_wallets');
+  return { refType: 'tenant', refId: shop.id, balance: b?.balance ?? 0, reply: `✅ ${PROFILE_LABEL[d.field]} saved. Type *profile* to see your shop details.` };
+}
+
 export async function commitDraft(tx: Tx, shop: Shop, payload: DraftPayload, cost: number, userId: string, phone: string | null = null): Promise<CommitResult> {
   switch (payload.kind) {
     case 'invoice': return commitInvoice(tx, shop, payload, cost, userId, phone);
@@ -309,6 +325,7 @@ export async function commitDraft(tx: Tx, shop: Shop, payload: DraftPayload, cos
     case 'expense': return commitExpense(tx, shop, payload, cost, userId);
     case 'stock_count': return commitStockCount(tx, shop, payload, cost, userId);
     case 'stock_out': return commitStockOut(tx, shop, payload, cost, userId);
+    case 'profile_update': return commitProfile(tx, shop, payload, userId);
     case 'stock_return': return commitStockReturn(tx, shop, payload, cost, userId);
   }
 }

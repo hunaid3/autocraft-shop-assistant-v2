@@ -18,12 +18,13 @@ import type { BillReader, BillReading } from './billReader.js';
 import { buildDraft, resolveDraft, saveDraft, takePendingDraft } from './drafts.js';
 import { commitDraft, UserError } from './commit.js';
 import { understand } from './parse.js';
-import { HOW_TO, helpText, runQuery } from './queries.js';
+import { HOW_TO, helpText, profileText, runQuery } from './queries.js';
+import { signupRoute } from './signup.js';
 import { phase1Router, type PrepareContext, type Reply, type RouteContext, type Router } from './router.js';
 import { loadShop, loadCatalog } from './shop.js';
 import type { Intent, ParseContext, Parser } from './intents.js';
 
-const OWNER_ONLY = new Set<Intent['type']>(['purchase', 'expense', 'stock_count']);
+const OWNER_ONLY = new Set<Intent['type']>(['purchase', 'expense', 'stock_count', 'profile_update']);
 const OWNER_ONLY_TEXT = 'Only the owner can do that. You can make bills and check stock.';
 const BILL_EXAMPLE = '*bought 50 airdopes @ 850 from Sharma Traders bill 4471*';
 
@@ -37,6 +38,7 @@ export interface MediaDeps {
 type BillFile = { path: string; mime: string; size: number; kind: 'bill_image' | 'bill_pdf' };
 type Prepared =
   | { intent: Intent }
+  | { logo: { path: string; mime: string; size: number } }
   | { bill: BillReading; file: BillFile }
   | { reply: string };
 
@@ -100,8 +102,27 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     return { bill, file: { path, mime: isPdf ? 'application/pdf' : file.mime, size: file.bytes.length, kind: isPdf ? 'bill_pdf' : 'bill_image' } };
   }
 
+  /** A photo with caption "logo": keep it in the shop folder; the PDF templates embed it. */
+  async function prepareLogo(c: PrepareContext, tenantId: string): Promise<Prepared> {
+    if (!media) return { reply: "Saving a logo isn't switched on yet." };
+    if (!c.message.media?.id) return { reply: "I couldn't open that photo. Please send it again." };
+    let file: { bytes: Buffer; mime: string };
+    try {
+      file = await media.whatsapp.downloadMedia(c.message.media.id, 2 * 1024 * 1024);
+    } catch (e) {
+      if (e instanceof MediaTooLargeError) return { reply: 'That logo is too large. Please send a smaller image (under 2 MB).' };
+      throw e;
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mime)) return { reply: 'Please send the logo as a JPG or PNG photo.' };
+    const ext = file.mime === 'image/png' ? 'png' : file.mime === 'image/webp' ? 'webp' : 'jpg';
+    const path = `${tenantId}/logo/${c.message.waMessageId.replace(/[^A-Za-z0-9._-]/g, '_')}.${ext}`;
+    await media.fileStore.put(path, file.bytes, file.mime);
+    return { logo: { path, mime: file.mime, size: file.bytes.length } };
+  }
+
   const route = async (ctx: RouteContext): Promise<Reply[]> => {
     const { sender, message, tx } = ctx;
+    if (sender.kind === 'unknown' && ['text', 'button'].includes(message.kind)) return signupRoute(tx, sender.phone, message);
     if (sender.kind !== 'member') return phase1Router(ctx);
     const isMedia = message.kind === 'image' || message.kind === 'document';
     if (!isMedia && !['text', 'button'].includes(message.kind)) return phase1Router(ctx);
@@ -110,6 +131,14 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     const prepared = ctx.prepared as Prepared | undefined;
     if (isMedia && !prepared) return text("I couldn't read that file. Please send it again.");
     if (prepared && 'reply' in prepared) return text(prepared.reply);
+    if (prepared && 'logo' in prepared) {
+      const { rows: [f] } = await tx.query(
+        `insert into files (tenant_id, kind, path, mime, size_bytes, created_by) values ($1, 'logo', $2, $3, $4, $5)
+         on conflict (bucket, path) do update set size_bytes = excluded.size_bytes returning id`,
+        [shop.id, prepared.logo.path, prepared.logo.mime, prepared.logo.size, sender.userId]);
+      await tx.query('update tenants set logo_file_id = $2 where id = $1', [shop.id, f.id]);
+      return text('✅ Logo saved. It will appear on new bills and quotations. Send another photo with caption *logo* to change it.');
+    }
 
     let intent: Intent;
     let note = '';
@@ -140,6 +169,8 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
         return text(helpText(sender.userName, sender.role));
       case 'how_to':
         return text(HOW_TO[intent.about]);
+      case 'profile_show':
+        return text(await profileText(tx, shop.id));
       case 'query':
         return text(await runQuery(tx, intent, sender.role));
       case 'unknown':
@@ -191,7 +222,8 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       case 'expense':
       case 'stock_count':
       case 'stock_out':
-      case 'stock_return': {
+      case 'stock_return':
+      case 'profile_update': {
         const b = await buildDraft(tx, shop, intent);
         if (!b.ok) return text(b.reply);
         if (b.cost > b.balance) {
@@ -213,6 +245,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     if (m.kind === 'image' || m.kind === 'document') {
       // Purchases are owner-only: don't download or spend AI on a staff member's photo
       if (c.sender.role !== 'owner') return { reply: OWNER_ONLY_TEXT };
+      if (m.kind === 'image' && /^\s*(?:my\s+|shop\s+)?logo\b/i.test(m.text ?? '')) return prepareLogo(c, c.sender.tenantId);
       return prepareBill(c, c.sender.tenantId);
     }
     if (m.kind === 'text') return { intent: await understand(m.text ?? '', parser, await parseContext(c, c.sender.tenantId)) };

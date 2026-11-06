@@ -31,6 +31,23 @@ export function periodRange(p: PeriodName, today = istDate()): { from: string; t
   }
 }
 
+export async function profileText(tx: Tx, tenantId: string): Promise<string> {
+  const { rows: [t] } = await tx.query(
+    `select t.name, t.gstin, t.state_code, s.name as state_name, t.address, t.phone, t.email, t.upi_id, t.logo_file_id is not null as has_logo,
+            ts.invoice_prefix, ts.quotation_prefix, ts.quotation_validity_days, (select balance from credit_wallets) as credits
+       from tenants t join gst_states s on s.code = t.state_code join tenant_settings ts on ts.tenant_id = t.id where t.id = $1`, [tenantId]);
+  return `🏪 *${t.name}*\n` +
+    `• GSTIN: ${t.gstin ?? 'none (bills of supply, no GST)'}\n` +
+    `• State: ${t.state_name} (${t.state_code})\n` +
+    `• Address: ${t.address ?? '—'}\n` +
+    `• Phone: ${t.phone ? '+' + t.phone : '—'}${t.email ? '\n• Email: ' + t.email : ''}\n` +
+    `• UPI: ${t.upi_id ?? '—'}\n` +
+    `• Logo: ${t.has_logo ? 'saved' : 'none'}\n` +
+    `• Numbers: ${t.invoice_prefix}/… for bills, ${t.quotation_prefix}/… for quotes (valid ${t.quotation_validity_days} days)\n` +
+    `• Credits: ${t.credits ?? 0}\n\n` +
+    'To change something: *update gstin …*, *update address …*, *update upi …*, *update phone …*; a photo with caption *logo* for your logo.';
+}
+
 export async function runQuery(tx: Tx, q: Extract<Intent, { type: 'query' }>, role: Role): Promise<string> {
   switch (q.report) {
     case 'credits': {
@@ -137,5 +154,6 @@ export const HOW_TO: Record<HowToTopic, string> = {
   expense: '💸 To record an expense, send the amount, what it was for and how you paid, e.g.\n*paid 3500 shop rent cash*',
   stock_count: '🔢 To set how many you have in hand, e.g.\n*stock count airdopes 141 40, cable 25*',
   quotation: '📝 To send a quotation, send the customer, items, quantity and rate, e.g.\n*quote Ravi Electronics 10 airdopes at 1250, 5 cables at 199*\n(*estimate …* for an estimate; add *valid 30 days* to change how long it holds)\n\nTo change it: *revise quote 12 10 airdopes at 1200*\nWhen the customer agrees: *convert quote 12*\nTo see open ones: *quotes*',
+  profile: '🏪 To change your shop details, send for example:\n*update gstin 36AABCU9603R1ZX*\n*update address 12-3, Abids Road, Hyderabad 500001*\n*update upi myshop@okhdfcbank*\n*update phone 9876543210*\n*update shop name Ravi Mobiles*\n\nSend a photo with the caption *logo* to put your logo on bills. Type *profile* to see what is saved now.',
   stock_out: '📤 When stock leaves without a bill, say what, how many and why, e.g.\n*gave 2 airdopes sample to Ravi*\n*3 cables damaged*\n*sent 5 airdopes on approval to Ravi*\n*sold 1 cable without bill*\n\nWhen it comes back: *returned 2 airdopes from Ravi*. To see what is out: *unbilled*'
 };

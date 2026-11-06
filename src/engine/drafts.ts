@@ -7,7 +7,8 @@ import type { Tx } from '../db/tenantTx.js';
 import { matchItem } from '../domain/itemMatch.js';
 import { docTotals, lineAmounts, supplyType, toQtyMilli, type DocTotals } from '../domain/money.js';
 import { formatInr, istDate } from '../domain/format.js';
-import type { Intent, LineIntent, StockOutReason } from './intents.js';
+import type { Intent, LineIntent, ProfileField, StockOutReason } from './intents.js';
+import { checkGstin } from '../domain/gstin.js';
 import { REASON_LABEL } from './intents.js';
 import { creditBalance, creditCost, loadCatalog, stockMap, type CatalogItem, type Shop } from './shop.js';
 
@@ -47,13 +48,16 @@ export type DraftPayload =
       revises?: { id: string; number: string; serial: number; fy: string; revision: number };
     }
   | { kind: 'stock_out'; reason: StockOutReason; party?: string; note?: string; lines: StockOutLine[] }
-  | { kind: 'stock_return'; party?: string; lines: StockOutLine[] };
+  | { kind: 'stock_return'; party?: string; lines: StockOutLine[] }
+  | { kind: 'profile_update'; field: ProfileField; value: string | null; stateCode?: string };
 
 export interface StockOutLine { itemId: string; name: string; unit: string; qty: string; valuePaise: number }
 
 export const ACTION_FOR: Record<DraftPayload['kind'], string> = {
-  invoice: 'invoice', quotation: 'quotation', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return'
+  invoice: 'invoice', quotation: 'quotation', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return', profile_update: 'query'
 };
+
+export const PROFILE_LABEL: Record<ProfileField, string> = { gstin: 'GSTIN', address: 'Address', upi: 'UPI ID', name: 'Shop name', phone: 'Shop phone', email: 'Email' };
 
 /** Goods that stay "out" until they come back or are billed. Damaged and shop-use stock is simply gone. */
 export const STAYS_OPEN: ReadonlySet<StockOutReason> = new Set(['cash_sale_no_bill', 'sample_demo', 'on_approval', 'branch_transfer', 'other']);
@@ -267,6 +271,60 @@ export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Bu
     return { ok: true, cost, balance, summary: cardText(head, lines.map(lineText), warnings.join('\n'), costLine(cost, balance)),
       payload: { kind: 'invoice', party: { name: q.bill_to?.name, gstin: q.bill_to?.gstin ?? undefined, stateCode: q.bill_to?.gstin?.slice(0, 2) },
         supply, placeOfSupply: q.place_of_supply, lines, totals, fromQuote: { id: q.id, number: q.number, lineIds: ql.map((l) => l.id) } } };
+  }
+
+  if (intent.type === 'profile_update') {
+    const { rows: [cur] } = await tx.query(
+      `select t.name, t.gstin, t.state_code, t.address, t.upi_id, t.phone, t.email, s.name as state_name,
+              exists (select 1 from invoices) as has_invoices
+         from tenants t join gst_states s on s.code = t.state_code where t.id = $1`, [shop.id]);
+    const label = PROFILE_LABEL[intent.field];
+    let value = intent.value?.trim() ?? null;
+    let stateCode: string | undefined;
+    const notes: string[] = [];
+    switch (intent.field) {
+      case 'gstin': {
+        if (value === null) {
+          if (!cur.gstin) return fail('Your shop has no GSTIN saved.');
+          notes.push('New bills will be *bills of supply* with no GST. Bills already made stay as they are.');
+          break;
+        }
+        const g = checkGstin(value);
+        if (!g.ok) return fail(`That GSTIN doesn't look right: ${g.reason}. Please check it and send again.`);
+        value = g.gstin;
+        if (value === cur.gstin) return fail(`${value} is already your GSTIN.`);
+        const { rows: [st] } = await tx.query('select code, name from gst_states where code = $1', [g.stateCode]);
+        if (!st) return fail(`The GSTIN starts with ${g.stateCode}, which is not a state code I know.`);
+        if (st.code !== cur.state_code) { stateCode = st.code; notes.push(`State will change from ${cur.state_name} to *${st.name}* (it decides CGST/SGST or IGST).`); }
+        if (!cur.gstin) notes.push('From now on bills will be *tax invoices* with GST.' + (cur.has_invoices ? ' Bills already made stay as they are.' : ''));
+        break;
+      }
+      case 'upi':
+        if (!value || !/^[a-z0-9._-]{2,256}@[a-z]{2,64}$/i.test(value)) return fail("That doesn't look like a UPI ID (it has an @, like *name@okaxis*).");
+        value = value.toLowerCase();
+        notes.push('New bills will carry a scan-to-pay QR for this UPI ID.');
+        break;
+      case 'phone': {
+        const d = (value ?? '').replace(/\D/g, '');
+        const e164 = d.length === 10 ? '91' + d : d;
+        if (!/^[1-9]\d{9,14}$/.test(e164)) return fail('Please send a 10-digit mobile number, e.g. *update phone 9876543210*.');
+        value = e164;
+        break;
+      }
+      case 'email':
+        if (!value || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return fail("That doesn't look like an email address.");
+        value = value.toLowerCase();
+        break;
+      case 'name':
+      case 'address':
+        if (!value || value.length < 2) return fail(`What should the new ${label.toLowerCase()} be?`);
+        if (value.length > (intent.field === 'name' ? 80 : 300)) return fail(`That ${label.toLowerCase()} is too long.`);
+        break;
+    }
+    const before = { gstin: cur.gstin, address: cur.address, upi: cur.upi_id, name: cur.name, phone: cur.phone, email: cur.email }[intent.field];
+    const shown = (v: string | null) => (v ? (intent.field === 'phone' ? '+' + v : v) : '—');
+    const summary = `🏪 *Update ${label}*\nNow: ${shown(before)}\nNew: *${shown(value)}*` + (notes.length ? '\n\n' + notes.join('\n') : '') + '\n\n_Free._';
+    return { ok: true, cost: 0, balance, summary, payload: { kind: 'profile_update', field: intent.field, value, stateCode } };
   }
 
   if (intent.type === 'stock_out' || intent.type === 'stock_return') {
