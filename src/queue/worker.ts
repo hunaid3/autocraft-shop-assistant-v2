@@ -12,6 +12,7 @@ import {
   type EngineDeps, type InboundPayload, type OutboundPayload
 } from '../engine/process.js';
 import { processInvoicePdf, type DocumentJob } from '../documents/invoiceJob.js';
+import { processRechargeInvoicePdf, type RechargeInvoicePayload } from '../payments/rechargeInvoice.js';
 import { processSupportNotify, type SupportNotifyPayload } from '../engine/support.js';
 
 export type QueueName = 'inbound' | 'outbound' | 'documents';
@@ -58,9 +59,10 @@ export function startWorker(deps: EngineDeps, opts: WorkerOptions): Worker {
       case 'inbound': await processInbound(deps, payload as InboundPayload); return;
       case 'outbound': await processOutbound(deps, payload as OutboundPayload); return;
       case 'documents': {
-        const p = payload as DocumentJob | SupportNotifyPayload;
+        const p = payload as DocumentJob | SupportNotifyPayload | RechargeInvoicePayload;
         if (p.kind === 'support_notify') { await processSupportNotify({ pool: deps.pool, email: deps.notify?.email }, p); return; }
         if (!deps.documents) throw new Error('documents not configured in this worker');
+        if (p.kind === 'recharge_invoice_pdf') { await processRechargeInvoicePdf({ pool: deps.pool, ...deps.documents! }, p); return; }
         if (p.kind !== 'invoice_pdf' && p.kind !== 'quotation_pdf') throw new PermanentError(`unknown document job ${String((p as { kind?: unknown }).kind)}`);
         await processInvoicePdf({ pool: deps.pool, ...deps.documents! }, p);
       }

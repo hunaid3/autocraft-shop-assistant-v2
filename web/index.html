@@ -67,6 +67,8 @@
     <button data-t="purchases">Purchases <span class="cnt" id="c-purchases"></span></button>
     <button data-t="expenses">Expenses <span class="cnt" id="c-expenses"></span></button>
     <button data-t="unbilled">Without bill <span class="cnt" id="c-unbilled"></span></button>
+    <button data-t="customers">Customers <span class="cnt" id="c-customers"></span></button>
+    <button data-t="suppliers">Suppliers <span class="cnt" id="c-suppliers"></span></button>
     <button data-t="credits">Credits</button>
     <button data-t="settings">Settings</button>
     <button data-t="admin" id="adminTab" hidden>Admin</button>
@@ -82,16 +84,29 @@
     <div id="stockTbl"></div>
     <div class="note">Value is at purchase cost (selling price where no cost is known). “Not recorded” means the item was sold before its stock was entered: send <b>stock count</b> on WhatsApp to fix it. To add many items at once, send an Excel or CSV file on WhatsApp (<b>template</b> for a ready sheet).</div>
   </section>
-  <section class="panel" id="p-invoices"><div class="tools"><span class="muted small" id="invLbl"></span><button class="csv" data-csv="invoices">Download CSV</button></div><div id="invTbl"></div></section>
+  <section class="panel" id="p-invoices">
+    <div class="tools"><span class="muted small" id="invLbl"></span><button class="csv" data-csv="invoices">Download CSV</button></div>
+    <div class="exports"><span class="muted small">For your accountant, this period's bills:</span>
+      <button class="csv" data-export="tally-sales.xml">Tally (XML)</button>
+      <button class="csv" data-export="zoho-invoices.csv">Zoho Books (CSV)</button>
+      <button class="csv" data-export="sales-register.csv">GST sales register (CSV)</button></div>
+    <div id="invTbl"></div>
+    <div class="note">Tally: Gateway of Tally → Import → Transactions, choose the XML. Customers, items, units and the sales and GST ledgers are created if missing (ledger names are in Settings). Zoho Books: Sales → Invoices → Import. Try the first import in a test company.</div>
+  </section>
   <section class="panel" id="p-quotations"><div class="tools"><span class="muted small" id="quoLbl"></span><button class="csv" data-csv="quotations">Download CSV</button></div><div id="quoTbl"></div></section>
   <section class="panel" id="p-purchases"><div class="tools"><span class="muted small" id="purLbl"></span><button class="csv" data-csv="purchases">Download CSV</button></div><div id="purTbl"></div></section>
   <section class="panel" id="p-expenses"><div class="tools"><span class="muted small" id="expLbl"></span><button class="csv" data-csv="expenses">Download CSV</button></div><div id="expCats"></div><div id="expTbl" class="gap"></div></section>
   <section class="panel" id="p-unbilled"><div class="tools"><span class="muted small">All dates</span><button class="csv" data-csv="unbilled">Download CSV</button></div><div id="uoTbl"></div>
     <div class="note">Stock that left without an invoice and hasn’t been billed or returned yet comes first.</div></section>
+  <section class="panel" id="p-customers"><div class="tools"><input type="search" id="qc" placeholder="Search name, phone or GSTIN…" aria-label="Search customers"><button class="csv" data-pcsv="customers">Download CSV</button></div><div id="cusTbl"></div>
+    <div class="note">Everyone you have billed by name, with all-time totals. Customers are added automatically when you bill them on WhatsApp.</div></section>
+  <section class="panel" id="p-suppliers"><div class="tools"><input type="search" id="qs" placeholder="Search name, phone or GSTIN…" aria-label="Search suppliers"><button class="csv" data-pcsv="suppliers">Download CSV</button></div><div id="supTbl"></div></section>
   <section class="panel" id="p-credits">
     <div class="card first" id="creditBox"></div>
     <h3>Credits that are still valid</h3>
     <div id="lotTbl"></div>
+    <h3>Recharge invoices</h3>
+    <div id="rinvTbl"></div>
     <div class="tools"><h3 class="grow">History</h3><button class="csv" data-csv="credits">Download CSV</button></div>
     <div id="ledTbl"></div>
   </section>
@@ -147,6 +162,17 @@
           <label>Prices you type<select name="prices_include_gst"><option value="false">are before GST</option><option value="true">include GST</option></select></label>
           <label>Billing more than stock<select name="stock_shortfall"><option value="allow">allow, and warn</option><option value="block">block</option></select></label>
           <label>Low stock alert at<input name="low_stock_default" type="number" min="0" step="any"></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Tally ledger names <small>· used in the Tally export; match them to your Tally company</small></h2>
+        <div class="grid">
+          <label>Sales ledger<input name="t_sales" maxlength="60"></label>
+          <label>CGST ledger<input name="t_cgst" maxlength="60"></label>
+          <label>SGST ledger<input name="t_sgst" maxlength="60"></label>
+          <label>IGST ledger<input name="t_igst" maxlength="60"></label>
+          <label>Round off ledger<input name="t_roundOff" maxlength="60"></label>
+          <label>Walk-in customer ledger<input name="t_cashParty" maxlength="60"></label>
         </div>
       </div>
       <div class="savebar"><span id="saveMsg" class="small" role="status"></span><button class="btn" type="submit">Save changes</button></div>

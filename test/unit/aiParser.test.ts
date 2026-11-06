@@ -4,7 +4,7 @@ import { AiUnavailableError, JSON_SCHEMA, OpenAiParser, systemPrompt } from '../
 const ctx = { today: '2026-11-06', catalog: ['boAt Airdopes 141', 'USB-C Cable', 'cable'] };
 
 const blank = {
-  type: 'unknown', party_name: null, party_gstin: null, party_phone: null, lines: [], bill_no: null,
+  type: 'unknown', feature: null, party_name: null, party_gstin: null, party_phone: null, lines: [], bill_no: null,
   expense_amount_rupees: null, expense_category: null, expense_mode: null, expense_paid_to: null, stock_out_reason: null, quote_ref: null, quote_is_estimate: null, quote_valid_days: null,
   report: null, report_item: null, period: null, clarification: null
 };
@@ -64,6 +64,21 @@ describe('OpenAiParser', () => {
       const p = new OpenAiParser({ apiKey: 'k', fetchImpl: fakeOpenAi(out).f });
       expect(await p.parse('…', ctx)).toMatchObject(want);
     }
+  });
+
+  it('questions about using the assistant go to the matching reply (item upload, shops, staff, credits…)', async () => {
+    const ask = async (feature: string) => new OpenAiParser({ apiKey: 'k', fetchImpl: fakeOpenAi({ ...blank, type: 'feature', feature }).f })
+      .parse('I want to upload an excel with inventory details, can you suggest the format of columns required?', ctx);
+    expect(await ask('item_upload')).toEqual({ type: 'import_help' });
+    expect(await ask('switch_shop')).toEqual({ type: 'switch_shop' });
+    expect(await ask('add_shop')).toEqual({ type: 'help_topic', topic: 'shop' });
+    expect(await ask('staff')).toEqual({ type: 'help_topic', topic: 'staff' });
+    expect(await ask('credits_prices')).toEqual({ type: 'help_topic', topic: 'credits' });
+    expect(await ask('recharge')).toEqual({ type: 'recharge' });
+    expect(await ask('dashboard')).toEqual({ type: 'dashboard' });
+    expect(await ask('support')).toEqual({ type: 'support' });
+    expect(await ask('shop_details')).toEqual({ type: 'help_topic', topic: 'shop' });
+    expect(systemPrompt(ctx, 10)).toContain('item_upload (upload an Excel/CSV item or inventory list');
   });
 
   it('a missing detail becomes a question, not a guess', async () => {

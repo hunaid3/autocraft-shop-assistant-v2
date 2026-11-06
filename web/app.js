@@ -87,6 +87,7 @@
       await loadTab(currentTab());
       // counts on the tabs
       for (const t of ['invoices', 'quotations', 'purchases', 'expenses', 'stock', 'unbilled']) if (!loaded.has(t)) loadList(t).catch(() => {});
+      for (const t of ['customers', 'suppliers']) if (!loaded.has(t)) loadParties(t).catch(() => {});
     } catch (e) { showError(e); }
   }
 
@@ -236,15 +237,39 @@
     }
   };
 
+  // ── Customers and suppliers ──────────────────────────────────────────────
+  const PARTY = {};
+  const phoneOf = (p) => (p ? (String(p).startsWith('91') && String(p).length === 12 ? '+91 ' + String(p).slice(2, 7) + ' ' + String(p).slice(7) : '+' + p) : '');
+  function renderParties(kind) {
+    const q = ($(kind === 'customers' ? 'qc' : 'qs').value || '').toLowerCase();
+    const all = PARTY[kind] || [];
+    const rows = all.filter((r) => !q || [r.name, r.gstin, r.phone].some((v) => String(v || '').toLowerCase().includes(q)));
+    const cust = kind === 'customers';
+    $(cust ? 'cusTbl' : 'supTbl').innerHTML = table([
+      { h: 'Name', f: (r) => esc(r.name) + (r.address ? `<div class="muted small">${esc(r.address)}</div>` : '') },
+      { h: 'GSTIN', f: (r) => (r.gstin ? esc(r.gstin) : '<span class="muted">Unregistered</span>') },
+      { h: 'Phone', f: (r) => (r.phone ? `<a href="https://wa.me/${esc(r.phone)}" target="_blank" rel="noopener">${esc(phoneOf(r.phone))}</a>` : dash) },
+      { h: 'State', f: (r) => esc(r.state_name) || dash },
+      { h: cust ? 'Bills' : 'Purchases', r: 1, f: (r) => r.docs },
+      { h: cust ? 'Billed' : 'Bought', r: 1, f: (r) => rs(r.total_paise) },
+      { h: 'Last', f: (r) => (r.last_date ? fdate(r.last_date, true) : dash) }
+    ], rows, all.length ? 'No one matches.' : cust ? 'No customers yet. Bill a customer by name on WhatsApp and they appear here.' : 'No suppliers yet. Enter a purchase with the supplier name and they appear here.');
+  }
+  async function loadParties(kind) {
+    PARTY[kind] = (await json('/' + kind)).rows;
+    $('c-' + kind).textContent = PARTY[kind].length;
+    renderParties(kind); loaded.add(kind);
+  }
+
   // ── Credits tab ──────────────────────────────────────────────────────────
   const KIND = { debit: 'Used', signup_bonus: 'Welcome credits', top_up: 'Recharge', refund: 'Refund', expiry: 'Expired', admin_adjust: 'From AutoCraft', referral: 'Referral' };
   async function loadCredits() {
-    const [lots, led] = await Promise.all([json('/credits/lots'), json('/credits')]);
+    const [lots, led, rinv] = await Promise.all([json('/credits/lots'), json('/credits'), json('/recharge_invoices')]);
     const c = SUM ? SUM.credits : { balance: 0 };
     $('creditBox').innerHTML = `<div class="credit-head"><div><div class="muted small">Balance</div><div class="big">${c.balance} credits</div>` +
       `<div class="muted small">1 credit = ₹1 · each recharge lasts 24 months · older credits are used first</div></div>` +
       `<a class="btn" href="https://wa.me/${BOT}?text=recharge" target="_blank" rel="noopener">Recharge on WhatsApp</a></div>` +
-      '<div class="note">Bill 3 · bill photo read 3 · quote 1 · typed entry 1 · stock out 1 · staff 25 · item list upload 10 (under 10 items) or 25 · questions and reports free.</div>';
+      '<div class="note">Bill 3 · bill photo read 3 · quote 1 · typed entry 1 · stock out 1 · staff 25 · item list upload 10 (up to 10 items) or 25 (more than 10) · questions and reports free.</div>';
     const soon = Date.now() + 30 * 86400000;
     $('lotTbl').innerHTML = table([
       { h: 'From', f: (x) => esc(KIND[x.source] || x.source) },
@@ -252,6 +277,14 @@
       { h: 'Left', r: 1, f: (x) => `${x.credits_remaining} <span class="muted small">of ${x.credits_granted}</span>` },
       { h: 'Valid till', f: (x) => fdate(x.expires_at, true) + (Date.parse(x.expires_at) < soon ? ' <span class="tag expiring">soon</span>' : '') }
     ], lots.rows, 'No credits right now. Recharge on WhatsApp to continue billing.');
+    $('rinvTbl').innerHTML = table([
+      { h: 'Invoice', f: (x) => esc(x.number) },
+      { h: 'Date', f: (x) => fdate(x.date, true) },
+      { h: 'Credits', r: 1, f: (x) => x.credits },
+      { h: 'GST', r: 1, f: (x) => rs(x.gst_paise) },
+      { h: 'Paid', r: 1, f: (x) => '<b>' + rs(x.total_paise) + '</b>' },
+      { h: 'PDF', r: 1, f: (x) => (x.has_pdf ? `<button class="pdf" data-pdf="recharge" data-id="${esc(x.id)}">PDF</button>` : '<span class="tag">PDF pending</span>') }
+    ], rinv.rows, 'GST invoices for your recharges appear here.');
     $('ledTbl').innerHTML = table([
       { h: 'Date', f: (x) => fdate(x.created_at, true) },
       { h: 'What', f: (x) => esc(x.kind === 'debit' && x.action_code ? 'Used: ' + x.action_code.replace(/_/g, ' ') : (KIND[x.kind] || x.kind)) + (x.note && x.note !== KIND[x.kind] ? `<div class="muted small">${esc(x.note)}</div>` : '') },
@@ -278,6 +311,7 @@
     $('prefixNote').textContent = s.prefix_locked
       ? `Locked for ${s.fy}: this year's bills already use ${s.invoice_prefix}. You can change it from 1 April.`
       : 'Numbers look like ' + (s.invoice_prefix || 'INV') + '/' + s.fy + '/0001. Changeable until the first bill of the year.';
+    for (const k of ['sales', 'cgst', 'sgst', 'igst', 'roundOff', 'cashParty']) f['t_' + k].value = s.tally_ledgers?.[k] ?? '';
     await showLogo(s.has_logo);
     loaded.add('settings');
   }
@@ -298,10 +332,11 @@
     out.default_gst_rate = Number(f.default_gst_rate.value);
     out.prices_include_gst = f.prices_include_gst.value === 'true';
     out.invoice_terms = f.invoice_terms.value.split('\n').map((x) => x.trim()).filter(Boolean);
+    out.tally_ledgers = Object.fromEntries(['sales', 'cgst', 'sgst', 'igst', 'roundOff', 'cashParty'].map((k) => [k, f['t_' + k].value.trim()]));
     // send only what changed, so an untouched field is never rewritten
     const s = SETTINGS; const phoneNow = s.phone ? (s.phone.startsWith('91') && s.phone.length === 12 ? s.phone.slice(2) : '+' + s.phone) : '';
     for (const k of Object.keys(out)) {
-      const before = k === 'phone' ? phoneNow : k === 'invoice_terms' ? (s.invoice_terms || []) : s[k] ?? '';
+      const before = k === 'phone' ? phoneNow : k === 'invoice_terms' ? (s.invoice_terms || []) : k === 'tally_ledgers' ? s.tally_ledgers : s[k] ?? '';
       if (JSON.stringify(before) === JSON.stringify(out[k]) || (before === null && out[k] === '')) delete out[k];
     }
     return out;
@@ -366,10 +401,10 @@
     } catch (e) { if (w) w.close(); showError(e); }
     finally { btn.disabled = false; btn.textContent = 'PDF'; }
   }
-  async function download(name, btn) {
+  async function download(name, btn, path) {
     btn.disabled = true;
     try {
-      const res = await api(`/export/${name}.csv?period=${PERIOD}`);
+      const res = await api(`/export/${path || name + '.csv'}?period=${PERIOD}`);
       const file = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || `${name}.csv`;
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await res.blob()), download: file });
       document.body.append(a); a.click(); a.remove();
@@ -383,6 +418,7 @@
     if (t === 'credits') return loadCredits();
     if (t === 'settings') return loadSettings();
     if (t === 'admin') return loadAdmin();
+    if (t === 'customers' || t === 'suppliers') return loadParties(t);
     return loadList(t);
   }
   async function refreshMe() {
@@ -400,6 +436,8 @@
     loadTab(b.dataset.t).catch(showError);
   });
   $('q').addEventListener('input', () => RENDER.stock());
+  $('qc').addEventListener('input', () => renderParties('customers'));
+  $('qs').addEventListener('input', () => renderParties('suppliers'));
   document.querySelectorAll('.filter').forEach((f) => f.addEventListener('click', () => {
     STOCK_FILTER = f.dataset.f;
     document.querySelectorAll('.filter').forEach((x) => x.classList.toggle('on', x === f));
@@ -410,6 +448,8 @@
     const t = e.target.closest('button'); if (!t || t.closest('#settingsForm')) return;
     if (t.dataset.pdf) return openPdf(t);
     if (t.dataset.csv) return download(t.dataset.csv, t);
+    if (t.dataset.pcsv) return download(t.dataset.pcsv, t);
+    if (t.dataset.export) return download(t.dataset.export, t, t.dataset.export);
     if (t.dataset.close) { await json(`/admin/support/${t.dataset.close}/close`, { method: 'POST', body: '{}' }).catch(showError); loaded.delete('admin'); return loadAdmin(); }
     if (t.dataset.grant) {
       const credits = Number(prompt(`Credits to give ${t.dataset.name} (1 to 10000):`, '50'));

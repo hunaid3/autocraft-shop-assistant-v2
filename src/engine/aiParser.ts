@@ -19,6 +19,9 @@ import { REASON_HINT, SimpleParser } from './parse.js';
 
 export class AiUnavailableError extends Error {}
 
+// Questions about using the assistant itself (not an entry): each maps to an existing reply
+export const FEATURES = ['item_upload', 'add_shop', 'switch_shop', 'staff', 'recharge', 'credits_prices', 'dashboard', 'support', 'shop_details', 'bills_help', 'purchases_help', 'stock_out_help'] as const;
+
 export interface AiParserOptions {
   apiKey: string;
   model?: string;                  // default gpt-6-luna; check developers.openai.com/api/docs/models
@@ -36,7 +39,8 @@ const LINE = z.object({
   rate_rupees: n(z.number()), discount_rupees: n(z.number()), gst_rate: n(z.number()), sale_rate_rupees: n(z.number())
 });
 const OUT = z.object({
-  type: z.enum(['help', 'greeting', 'confirm', 'cancel', 'query', 'invoice', 'purchase', 'expense', 'stock_count', 'stock_out', 'stock_return', 'quotation', 'quote_revise', 'quote_convert', 'unknown']),
+  type: z.enum(['help', 'greeting', 'confirm', 'cancel', 'query', 'invoice', 'purchase', 'expense', 'stock_count', 'stock_out', 'stock_return', 'quotation', 'quote_revise', 'quote_convert', 'feature', 'unknown']),
+  feature: n(z.enum(FEATURES)).optional(),   // always sent by the model (strict schema); optional here so older outputs still parse
   party_name: n(z.string()), party_gstin: n(z.string()), party_phone: n(z.string()),
   lines: z.array(LINE),
   bill_no: n(z.string()),
@@ -54,10 +58,11 @@ type Out = z.infer<typeof OUT>;
 const nullable = (t: object) => ({ anyOf: [t, { type: 'null' }] });
 export const JSON_SCHEMA = {
   type: 'object', additionalProperties: false,
-  required: ['type', 'party_name', 'party_gstin', 'party_phone', 'lines', 'bill_no', 'expense_amount_rupees', 'expense_category',
+  required: ['type', 'feature', 'party_name', 'party_gstin', 'party_phone', 'lines', 'bill_no', 'expense_amount_rupees', 'expense_category',
     'expense_mode', 'expense_paid_to', 'stock_out_reason', 'quote_ref', 'quote_is_estimate', 'quote_valid_days', 'report', 'report_item', 'period', 'clarification'],
   properties: {
     type: { type: 'string', enum: OUT.shape.type.options },
+    feature: nullable({ type: 'string', enum: [...FEATURES] }),
     party_name: nullable({ type: 'string' }), party_gstin: nullable({ type: 'string' }), party_phone: nullable({ type: 'string' }),
     lines: {
       type: 'array',
@@ -104,7 +109,13 @@ export function systemPrompt(ctx: ParseContext, maxCatalog: number): string {
     '- quote_convert: turn a quotation into a bill; quote_ref = its number. No lines.',
     '- stock_return: goods that went out without a bill came back ("returned", "wapas aaya"). party_name = who returned it.',
     '- query: a question; set report (item_stock needs report_item; sales_period needs period; open_unbilled = what is out without a bill; open_quotes = open quotations).',
-    '- confirm / cancel: yes/no to the last summary. help, greeting.',
+    '- confirm / cancel: yes/no to the last summary. help, greeting (only a hello or "what can you do").',
+    '- feature: a question or request about using the assistant itself, not an entry. Set feature:',
+    '  item_upload (upload an Excel/CSV item or inventory list, its format or columns, bulk add items), add_shop (open or register another shop),',
+    '  switch_shop (move between my shops), staff (add/remove staff, give an employee access), recharge (buy credits, pay, top up),',
+    '  credits_prices (what things cost, how credits work, validity), dashboard (web login, reports online, export to Excel/Tally/Zoho),',
+    '  support (a problem, complaint, talk to a person), shop_details (my address, GSTIN, UPI, logo, bank details, invoice prefix),',
+    '  bills_help (how to make a bill or quote), purchases_help (how to enter purchases or add stock), stock_out_help (samples, damage, returns).',
     '- unknown: anything else; put a short question in clarification if one detail is missing.',
     '',
     'Rules:',
@@ -152,6 +163,22 @@ function toIntent(o: Out): Intent {
     case 'query':
       if (!o.report) return { type: 'unknown', hint: o.clarification ?? undefined };
       return { type: 'query', report: o.report, item: o.report_item ?? undefined, period: o.period ?? (o.report === 'sales_period' ? 'today' : undefined) };
+    case 'feature':
+      switch (o.feature) {
+        case 'item_upload': return { type: 'import_help' };
+        case 'switch_shop': return { type: 'switch_shop' };
+        case 'recharge': return { type: 'recharge' };
+        case 'dashboard': return { type: 'dashboard' };
+        case 'support': return { type: 'support' };
+        case 'shop_details': return { type: 'help_topic', topic: 'shop' };
+        case 'add_shop': return { type: 'help_topic', topic: 'shop' };
+        case 'staff': return { type: 'help_topic', topic: 'staff' };
+        case 'credits_prices': return { type: 'help_topic', topic: 'credits' };
+        case 'bills_help': return { type: 'help_topic', topic: 'bills' };
+        case 'purchases_help': return { type: 'help_topic', topic: 'purchases' };
+        case 'stock_out_help': return { type: 'help_topic', topic: 'stockout' };
+        default: return { type: 'help' };
+      }
     case 'unknown': return { type: 'unknown', hint: o.clarification ?? undefined };
     default: return { type: o.type };
   }

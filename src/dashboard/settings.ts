@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { withTenant, type Tx } from '../db/tenantTx.js';
 import type { FileStore } from '../documents/fileStore.js';
 import { normPhone } from '../engine/staff.js';
+import { DEFAULT_TALLY } from '../exports/accounting.js';
 
 const opt = <T extends z.ZodTypeAny>(t: T) => t.nullable().optional();
 const trimmed = (max: number) => z.string().transform((s) => s.replace(/\s+/g, ' ').trim()).pipe(z.string().max(max));
@@ -37,7 +38,12 @@ export const SettingsInput = z.object({
   default_gst_rate: z.coerce.number().min(0).max(100).optional(),
   prices_include_gst: z.boolean().optional(),
   stock_shortfall: z.enum(['allow', 'block']).optional(),
-  low_stock_default: z.coerce.number().min(0).max(1_000_000).optional()
+  low_stock_default: z.coerce.number().min(0).max(1_000_000).optional(),
+  // Ledger names used in the Tally export (must match the shop's Tally company)
+  tally_ledgers: z.object({
+    sales: trimmed(60).pipe(z.string().min(1)), cgst: trimmed(60).pipe(z.string().min(1)), sgst: trimmed(60).pipe(z.string().min(1)),
+    igst: trimmed(60).pipe(z.string().min(1)), roundOff: trimmed(60).pipe(z.string().min(1)), cashParty: trimmed(60).pipe(z.string().min(1))
+  }).optional()
 }).strict();
 export type SettingsInput = z.infer<typeof SettingsInput>;
 
@@ -54,10 +60,11 @@ export async function readSettings(tx: Tx, tenantId: string) {
             s.quotation_title, s.quotation_validity_days, s.default_gst_rate::float as default_gst_rate, s.prices_include_gst,
             s.stock_shortfall, s.low_stock_default::float as low_stock_default,
             exists (select 1 from invoices where fy = app.fy_of(app.today_ist())) as prefix_locked,
-            app.fy_of(app.today_ist()) as fy
+            app.fy_of(app.today_ist()) as fy, s.features->'tally' as tally
        from tenants t join tenant_settings s on s.tenant_id = t.id join gst_states g on g.code = t.state_code where t.id = $1`, [tenantId]);
   const rates = (await tx.query('select rate::float as r from gst_rates where active order by rate')).rows.map((x) => Number(x.r));
-  return { ...r, gst_rates: rates };
+  const { tally, ...rest } = r;
+  return { ...rest, gst_rates: rates, tally_ledgers: { ...DEFAULT_TALLY, ...(tally ?? {}) } };
 }
 
 export class SettingsError extends Error {}
@@ -74,7 +81,8 @@ export async function saveSettings(tx: Tx, tenantId: string, userId: string, bod
   const cur = await readSettings(tx, tenantId);
 
   const changed = (k: string) => k in input && JSON.stringify((input as Record<string, unknown>)[k] ?? null) !== JSON.stringify(cur[k] ?? null);
-  const fields = [...TENANT_COLS, ...SETTINGS_COLS].filter(changed);
+  const fields: string[] = [...TENANT_COLS, ...SETTINGS_COLS].filter(changed);
+  if (changed('tally_ledgers')) fields.push('tally_ledgers');
   if (!fields.length) return [];
 
   if (fields.includes('invoice_prefix') && cur.prefix_locked) {
@@ -90,7 +98,7 @@ export async function saveSettings(tx: Tx, tenantId: string, userId: string, bod
   }
 
   const set = async (table: 'tenants' | 'tenant_settings', cols: readonly string[]) => {
-    const mine = cols.filter((c) => fields.includes(c as (typeof fields)[number]));
+    const mine = cols.filter((c) => fields.includes(c));
     if (!mine.length) return;
     const vals = mine.map((c) => (input as Record<string, unknown>)[c] ?? null);
     const assign = mine.map((c, i) => `${c} = $${i + 2}`).join(', ');
@@ -98,6 +106,9 @@ export async function saveSettings(tx: Tx, tenantId: string, userId: string, bod
   };
   await set('tenants', TENANT_COLS);
   await set('tenant_settings', SETTINGS_COLS);
+  if (fields.includes('tally_ledgers')) {
+    await tx.query("update tenant_settings set features = jsonb_set(features, '{tally}', $2::jsonb) where tenant_id = $1", [tenantId, JSON.stringify(input.tally_ledgers)]);
+  }
   await tx.query(
     "insert into audit_log (tenant_id, actor_kind, actor_user_id, action, entity_type, entity_id, detail) values ($1, 'user', $2, 'settings.update', 'tenant', $1, $3)",
     [tenantId, userId, JSON.stringify({ fields, via: 'dashboard' })]);

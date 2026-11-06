@@ -32,7 +32,7 @@ const TOPICS: Record<HelpTopic, Topic> = {
       '*Bill photo:* just send a photo or PDF of the supplier bill; it comes back as a card to confirm\n' +
       '*Whole item list:* send an Excel or CSV file (owner; *template* for a ready sheet)\n\n' +
       'New items are created on Confirm; a selling price you give is saved on the item.\n' +
-      '💳 Typed 1 credit · bill photo/PDF 3 credits · item list 10 (under 10 items) or 25'
+      '💳 Typed 1 credit · bill photo/PDF 3 credits · item list 10 (up to 10 items) or 25 (more than 10)'
   },
   stockout: {
     title: '📤 Stock out & returns', description: 'Samples, approval, damage, cash sale without bill',
@@ -78,7 +78,7 @@ const TOPICS: Record<HelpTopic, Topic> = {
     title: '💳 Credits & prices', description: 'What each action costs, your balance', ownerOnly: true,
     body: () => '💳 *Credits* (1 credit = ₹1)\n\n' +
       '• Bill with PDF: 3\n• Bill read from a photo/PDF: 3\n• Quote: 1\n• Typed purchase / expense / stock entry: 1\n' +
-      '• Stock out without a bill: 1 (returns free)\n• Staff: 25 each\n• Item list upload: 10 (under 10 items) or 25\n' +
+      '• Stock out without a bill: 1 (returns free)\n• Staff: 25 each\n• Item list upload: 10 (up to 10 items) or 25 (more than 10)\n' +
       '• Questions, reports, help, shop details: free\n\n' +
       'Credits last 24 months; older credits are used first. Type *credits* for your balance, *recharge* to buy more.',
     buttons: [['RECHARGE', '💳 Recharge']]

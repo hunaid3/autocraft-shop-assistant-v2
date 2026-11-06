@@ -13,6 +13,7 @@ import { withTenant, withoutTenant, type Tx } from '../db/tenantTx.js';
 import { istDate } from '../domain/format.js';
 import type { FileStore } from '../documents/fileStore.js';
 import { registerSettings } from './settings.js';
+import { DEFAULT_TALLY, gstSalesRegister, partiesCsv, tallySalesXml, zohoInvoicesCsv, type ExportInvoice } from '../exports/accounting.js';
 
 export const LINK_MINUTES = 15;
 const SESSION_DAYS = 30;
@@ -189,8 +190,69 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
         (s.last_movement_at at time zone 'Asia/Kolkata')::date::text as last_movement
       from v_item_stock s join items i on i.id = s.item_id where i.active order by i.name` },
     unbilled: { dated: false, sql: `select a.id, a.adj_date::text as date, i.name as item, a.qty::float as qty, a.reason, a.party_name, a.est_value_paise, a.status from stock_adjustments a join items i on i.id = a.item_id order by (a.status = 'open') desc, a.adj_date desc limit 500` },
-    credits: { dated: false, sql: `select id, created_at, kind, delta, balance_after, action_code, note from credit_ledger order by id desc limit 500` }
+    credits: { dated: false, sql: `select id, created_at, kind, delta, balance_after, action_code, note from credit_ledger order by id desc limit 500` },
+    recharge_invoices: { dated: false, sql: `select id, number, invoice_date::text as date, description, credits, taxable_paise, cgst_paise + sgst_paise + igst_paise as gst_paise, total_paise, (pdf_file_id is not null) as has_pdf from recharge_invoices order by invoice_date desc, number desc` }
   };
+
+  // Customers and suppliers: contact details and all-time totals
+  const PARTIES: Record<'customers' | 'suppliers', string> = {
+    customers: `select p.id, p.name, p.gstin, p.phone, p.state_code, s.name as state_name, p.address,
+        count(v.id)::int as docs, coalesce(sum(v.total_paise), 0)::bigint as total_paise,
+        coalesce(sum(greatest(v.total_paise - v.amount_paid_paise, 0)), 0)::bigint as unpaid_paise, max(v.invoice_date)::text as last_date
+      from parties p left join gst_states s on s.code = p.state_code
+      left join invoices v on v.party_id = p.id and v.status = 'issued'
+      where p.kind in ('customer', 'both') group by p.id, s.name order by max(v.invoice_date) desc nulls last, p.name`,
+    suppliers: `select p.id, p.name, p.gstin, p.phone, p.state_code, s.name as state_name, p.address,
+        count(u.id)::int as docs, coalesce(sum(u.total_paise), 0)::bigint as total_paise, max(u.entry_date)::text as last_date
+      from parties p left join gst_states s on s.code = p.state_code
+      left join purchases u on u.supplier_id = p.id
+      where p.kind in ('supplier', 'both') group by p.id, s.name order by max(u.entry_date) desc nulls last, p.name`
+  };
+  for (const [name, sql] of Object.entries(PARTIES) as Array<['customers' | 'suppliers', string]>) {
+    app.get(`/api/${name}`, { preHandler: auth }, async (req) => ({ rows: await inShop(req, async (tx) => (await tx.query(sql)).rows) }));
+    app.get(`/api/export/${name}.csv`, { preHandler: auth }, async (req, reply) => {
+      const rows = await inShop(req, async (tx) => (await tx.query(sql)).rows);
+      reply.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', `attachment; filename="${name}-${istDate()}.csv"`);
+      return partiesCsv(rows, name);
+    });
+  }
+
+  // Sales invoices for accounting software, with their lines
+  async function exportInvoices(tx: Tx, from: string, to: string): Promise<ExportInvoice[]> {
+    const { rows } = await tx.query(
+      `select v.id, v.number, v.invoice_date::text as date, coalesce(p.name, v.bill_to->>'name') as customer, v.customer_gstin,
+              coalesce(p.phone, v.bill_to->>'phone') as customer_phone, coalesce(p.address, v.bill_to->>'address') as customer_address,
+              v.place_of_supply, g.name as pos_name, v.supply_type, v.taxable_paise, v.cgst_paise, v.sgst_paise, v.igst_paise,
+              v.round_off_paise, v.total_paise, v.status
+         from invoices v join gst_states g on g.code = v.place_of_supply left join parties p on p.id = v.party_id
+        where v.invoice_date between $1 and $2 order by v.invoice_date, v.serial`, [from, to]);
+    const { rows: lines } = await tx.query(
+      `select l.invoice_id, l.item_name, l.hsn, l.qty, l.unit, l.rate_paise, l.discount_paise, l.taxable_paise, l.gst_rate, l.gst_paise, l.line_total_paise
+         from invoice_lines l join invoices v on v.id = l.invoice_id where v.invoice_date between $1 and $2 order by l.line_no`, [from, to]);
+    const by = new Map<string, ExportInvoice['lines']>();
+    for (const l of lines) { const a = by.get(l.invoice_id) ?? []; a.push(l); by.set(l.invoice_id, a); }
+    return rows.map((r) => ({ ...r, lines: by.get(r.id) ?? [] }));
+  }
+  const ACCOUNTING: Record<string, { type: string; ext: string; make: (invs: ExportInvoice[], tx: Tx) => Promise<string> }> = {
+    'sales-register': { type: 'text/csv; charset=utf-8', ext: 'csv', make: async (i) => gstSalesRegister(i) },
+    'zoho-invoices': { type: 'text/csv; charset=utf-8', ext: 'csv', make: async (i) => zohoInvoicesCsv(i) },
+    'tally-sales': {
+      type: 'application/xml; charset=utf-8', ext: 'xml',
+      make: async (i, tx) => {
+        const { rows: [f] } = await tx.query("select features->'tally' as t from tenant_settings");
+        const states = Object.fromEntries((await tx.query('select code, name from gst_states')).rows.map((r) => [r.code, r.name]));
+        return tallySalesXml(i, { ledgers: { ...DEFAULT_TALLY, ...(f?.t ?? {}) }, states });
+      }
+    }
+  };
+  for (const [name, def] of Object.entries(ACCOUNTING)) {
+    app.get(`/api/export/${name}.${def.ext}`, { preHandler: auth }, async (req, reply) => {
+      const [from, to] = range(req.query as Record<string, unknown>);
+      const body = await inShop(req, async (tx) => def.make(await exportInvoices(tx, from, to), tx));
+      reply.header('content-type', def.type).header('content-disposition', `attachment; filename="${name}-${from}-to-${to}.${def.ext}"`);
+      return body;
+    });
+  }
 
   for (const [name, def] of Object.entries(LISTS)) {
     app.get(`/api/${name}`, { preHandler: auth }, async (req) => {
@@ -218,10 +280,10 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
 
   app.get('/api/pdf/:kind/:id', { preHandler: auth }, async (req, reply) => {
     const { kind, id } = req.params as { kind: string; id: string };
-    if (!['invoice', 'quotation'].includes(kind) || !/^[0-9a-f-]{36}$/.test(id)) return reply.code(404).send({ error: 'not found' });
+    if (!['invoice', 'quotation', 'recharge'].includes(kind) || !/^[0-9a-f-]{36}$/.test(id)) return reply.code(404).send({ error: 'not found' });
     if (!deps.fileStore) return reply.code(503).send({ error: 'files not available' });
     const f = await inShop(req, async (tx) => (await tx.query(
-      `select f.path, d.number from ${kind === 'invoice' ? 'invoices' : 'quotations'} d join files f on f.id = d.pdf_file_id where d.id = $1`, [id])).rows[0]);
+      `select f.path, d.number from ${({ invoice: 'invoices', quotation: 'quotations', recharge: 'recharge_invoices' } as Record<string, string>)[kind]} d join files f on f.id = d.pdf_file_id where d.id = $1`, [id])).rows[0]);
     if (!f) return reply.code(404).send({ error: 'PDF not ready yet' });
     const bytes = await deps.fileStore.get(f.path);
     reply.header('content-type', 'application/pdf').header('content-disposition', `inline; filename="${String(f.number).replace(/[/\\]/g, '-')}.pdf"`);

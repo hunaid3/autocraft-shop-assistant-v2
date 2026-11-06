@@ -1,7 +1,7 @@
 /**
  * Item list upload on WhatsApp: send an Excel (.xlsx) or CSV file → a card showing which columns
- * were read, how many items are new or already in the list, and the credits (10 under 10 items,
- * 25 from 10 items) → Confirm adds or updates the items and sets their stock.
+ * were read, how many items are new or already in the list, and the credits (10 for up to 10 items,
+ * 25 for more than 10) → Confirm adds or updates the items and sets their stock.
  * Rows that can't be read come back as a CSV with the reason in the first column.
  *
  * prepareImport runs outside the transaction (download, read, store files); the rest inside it.
@@ -17,7 +17,8 @@ import type { Reply } from './router.js';
 import { creditBalance, creditCost } from './shop.js';
 
 export const IMPORT_MAX_BYTES = 3 * 1024 * 1024;
-export const SMALL_IMPORT_BELOW = 10;
+/** Up to this many items is a small upload (10 credits); more is 25. Agreed 6 Nov 2026. */
+export const SMALL_IMPORT_MAX = 10;
 
 export interface PreparedImport {
   fileName: string;
@@ -112,7 +113,7 @@ export async function importCard(tx: Tx, tenantId: string, userId: string, p: Pr
   const existing = new Set((await tx.query('select name_key from items where active')).rows.map((r) => r.name_key as string));
   const known = p.rows.filter((r) => existing.has(normKey(r.name))).length;
   const withQty = p.rows.filter((r) => r.qty !== undefined).length;
-  const action = p.rows.length < SMALL_IMPORT_BELOW ? 'bulk_import_small' : 'bulk_import';
+  const action = p.rows.length <= SMALL_IMPORT_MAX ? 'bulk_import_small' : 'bulk_import';
   const cost = await creditCost(tx, action);
   const balance = await creditBalance(tx);
 
@@ -207,7 +208,7 @@ export async function templateReplies(tx: Tx, tenantId: string, userId: string, 
   const big = await creditCost(tx, 'bulk_import');
   return [
     { kind: 'text', text: '📦 *Upload your item list*\n\nSend an Excel (.xlsx) or CSV file with one item per row. Column titles in the first row: *Item name* (needed), Unit, HSN, GST %, Buy price, Sell price, Stock qty, Low stock alert. Other spellings like *MRP* or *Opening stock* work too.\n\n' +
-      `You see a summary first. 💳 ${small} credits for under ${SMALL_IMPORT_BELOW} items, ${big} credits for ${SMALL_IMPORT_BELOW} or more (up to 2000 per file).` },
+      `You see a summary first. 💳 ${small} credits for up to ${SMALL_IMPORT_MAX} items, ${big} credits for more than ${SMALL_IMPORT_MAX} (up to 2000 per file).` },
     { kind: 'document', fileId, filename: 'AutoCraft-item-template.xlsx', caption: 'Fill the Items sheet and send it back here.' }
   ];
 }

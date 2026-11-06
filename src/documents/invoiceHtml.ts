@@ -163,7 +163,7 @@ table { border-collapse: collapse; width: 100%; }
 
 <table class="items">
   <thead><tr>
-    <th class="c" style="width:4%">#</th><th>Item</th><th class="c">HSN</th><th class="r">Qty</th><th class="r">Rate</th>
+    <th class="c" style="width:4%">#</th><th>Item</th><th class="c">HSN/SAC</th><th class="r">Qty</th><th class="r">Rate</th>
     <th class="r">Disc.</th><th class="r">Taxable</th>${taxed ? '<th class="r">GST</th><th class="r">Tax</th>' : ''}<th class="r">Amount</th>
   </tr></thead>
   <tbody>${rows}</tbody>

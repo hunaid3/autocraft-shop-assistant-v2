@@ -9,6 +9,7 @@ import { formatInr } from '../domain/format.js';
 import { enqueue } from '../queue/queue.js';
 import type { Reply } from '../engine/router.js';
 import type { PaymentGateway } from './razorpay.js';
+import type { RechargeInvoicePayload } from './rechargeInvoice.js';
 
 export const LINK_HOURS = 24;
 const MAX_OPEN_LINKS = 5;
@@ -17,11 +18,13 @@ const date = (d: Date | string) => new Date(d).toLocaleDateString('en-IN', { day
 
 export async function packMenu(tx: Tx): Promise<Reply[]> {
   const { rows: packs } = await tx.query('select code, name, price_paise, credits from credit_packs where active order by sort_order limit 3');
-  const { rows: [w] } = await tx.query('select balance from credit_wallets');
+  const { rows: [w] } = await tx.query(
+    "select (select balance from credit_wallets) as balance, (select coalesce(value->>'gstin', '') <> '' from platform_settings where key = 'invoice_issuer') as invoiced");
   return [{
     kind: 'buttons',
     text: `💳 *Recharge credits* (1 credit = ₹1; you have ${w?.balance ?? 0})\n\n` +
       packs.map((p) => `• ${p.name}: ₹${formatInr(Number(p.price_paise))} → *${p.credits} credits*${p.credits * 100 > Number(p.price_paise) ? ` (${p.credits - Number(p.price_paise) / 100} extra)` : ''}`).join('\n') +
+      (w?.invoiced ? '\n\nPrices include 18% GST; a GST invoice comes with every recharge.' : '') +
       '\n\nCredits last 24 months from the day you buy them; older credits are used first, so recharging early never wastes any. Pay by UPI, card or netbanking.',
     buttons: packs.map((p) => ({ id: 'PACK:' + p.code, title: `₹${formatInr(Number(p.price_paise))}` }))
   }];
@@ -83,13 +86,20 @@ export async function handleRazorpayEvent(pool: pg.Pool, event: { event?: string
   return withTenant(pool, p.tenant_id, async (tx) => {
     const { rows: [{ c }] } = await tx.query('select app.apply_payment($1, $2, $3) as c', [linkId, paymentId, JSON.stringify({ event: event.event, payment_id: paymentId, method: pay.method ?? null })]);
     if (!c) return 'already' as const;
+    // GST tax invoice from Mahir Traders (only once the issuer's GSTIN is set up); the PDF follows the receipt
+    const { rows: [inv] } = await tx.query('select app.issue_recharge_invoice($1) as id', [p.payment_id]);
+    if (inv.id) {
+      await enqueue(tx, `recharge-invoice:${inv.id}`,
+        { kind: 'recharge_invoice_pdf', tenant_id: p.tenant_id, invoice_id: inv.id, notify_phone: p.requester_phone ?? null } satisfies RechargeInvoicePayload, 'documents');
+    }
     const { rows: [w] } = await tx.query(
       `select (select balance from credit_wallets) as balance,
               (select expires_at from credit_lots where payment_id = $1) as expires_at`, [p.payment_id]);
     if (p.requester_phone) {
       const receipt = `✅ *Payment received*: ₹${formatInr(Number(p.amount_paise))}\n` +
         `${c} credits added (${p.pack_code} pack), valid till ${date(w.expires_at)}.\n` +
-        `Balance: *${w.balance} credits*\n\nRazorpay payment ID: ${paymentId}\nKeep this message as your receipt. Thank you!`;
+        `Balance: *${w.balance} credits*\n\nRazorpay payment ID: ${paymentId}\n` +
+        (inv.id ? 'Your GST tax invoice (PDF) follows. You can also download it from the dashboard. Thank you!' : 'Keep this message as your receipt. Thank you!');
       const { rows: [m] } = await tx.query(
         `insert into messages (wa_message_id, tenant_id, direction, phone, msg_type, payload, status) values ($1, $2, 'out', $3, 'text', $4, 'pending') returning id`,
         ['pending:' + randomUUID(), p.tenant_id, p.requester_phone, JSON.stringify({ kind: 'text', to: p.requester_phone, text: receipt })]);

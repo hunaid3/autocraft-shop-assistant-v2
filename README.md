@@ -141,15 +141,16 @@ Phase 2, slice 1 (core loop):
       default GST, prices include GST, stock shortfall, low-stock default. No GSTIN or state edit. Every change is
       in `audit_log` (`settings.update`, field names only).
 - [ ] Next: OTP login for later dashboard visits (needs an authentication template)
-- [ ] Backlog (6 Nov): item upload price boundary. Agreed rule: up to 10 items = 10 credits, more than 10 = 25.
-      Today a file of exactly 10 items is charged 25 (`SMALL_IMPORT_BELOW` in `src/engine/itemImport.ts` compares
-      `< 10`); change to `<= 10` and update the help texts, ToS and tests.
-- [ ] Backlog (7 Nov): the AI reader only knows the original intents (`OUT.type` in `src/engine/aiParser.ts`: bills,
-      purchases, stock, quotes, questions, help). Free-text questions about newer features (item upload format,
-      add/switch shop, staff, recharge, dashboard, support, shop details, help topics) fall back to the generic
-      help/greeting reply. Example: "I want to upload an excel with inventory details, can you suggest the format of
-      columns required?" → greeting. Fix: add those intents (or a `how_to` topic field) to the schema and prompt,
-      map them to the existing handlers, and add tests with natural phrasings (English and Hinglish).
+- [x] **Item upload price:** up to 10 items = 10 credits, more than 10 = 25.
+- [x] **AI reader knows the newer features:** questions about item upload, shops, staff, recharge, credits,
+      dashboard, support and shop details get the matching reply (`feature` in `src/engine/aiParser.ts`).
+- [x] **Recharge GST invoices** from Mahir Traders (Razorpay account holder): pack prices include 18% GST, CGST+SGST in
+      the issuer's state else IGST, shop GSTIN printed, own series `AC/<FY>/00001`, PDF on WhatsApp and in the dashboard
+      (`recharge_invoices`, `app.issue_recharge_invoice`). Issuer details in `platform_settings.invoice_issuer`; no
+      invoice until its `gstin` and `state_code` are set. Kept after account closure (GST record retention).
+- [x] **Customers and suppliers** tabs with GSTIN, phone, state and totals; CSV export.
+- [x] **Accounting exports** of a period's bills: TallyPrime XML (masters + balanced sales vouchers, ledger names in
+      Settings), Zoho Books invoice CSV, GST sales register CSV (`src/exports/accounting.ts`).
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)
