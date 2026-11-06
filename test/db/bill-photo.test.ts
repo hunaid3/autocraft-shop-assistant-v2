@@ -117,14 +117,18 @@ describe('a bill photo', () => {
     expect(seen.length).toBe(calls);
   });
 
-  it('staff photos are not downloaded or read: purchases are for the owner', async () => {
+  it('staff may send bill photos too (plan: staff enter purchases); only a logo photo is owner-only', async () => {
     const staff = randomPhone();
     await admin.query(
       "with u as (insert into users (phone, name) values ($1, 'Staff') returning id) insert into memberships (tenant_id, user_id, role) select $2, id, 'staff' from u",
       [staff, S.tenantId]);
     const calls = seen.length;
-    expect(body(await send(staff, image(staff, photo())))).toContain('Only the owner can do that');
-    expect(seen.length).toBe(calls);
+    next = reading({ billNo: 'ST-STAFF' });
+    expect(body(await send(staff, image(staff, photo())))).toContain('Read from the photo');
+    expect(seen.length).toBe(calls + 1);
+    await send(staff, text(staff, 'cancel'));
+    expect(body(await send(staff, image(staff, photo(), 'logo')))).toContain('Only the owner can do that');
+    expect(seen.length).toBe(calls + 1);
   });
 });
 

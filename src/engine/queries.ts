@@ -141,10 +141,12 @@ export function helpText(name: string | null, role: Role): string {
   const owner = role === 'owner';
   return `👋 Hi${name ? ' ' + name : ''}! Send messages like:\n\n` +
     '🧾 *bill* Ravi Electronics 10 airdopes at 1250, 5 cables at 199\n' +
-    (owner ? '📥 *bought* 50 airdopes @ 850 from Sharma Traders bill 4471 (or send a photo of the bill)\n💸 *paid* 3500 shop rent cash\n🔢 *stock count* airdopes 141 40, cable 25\n' : '') +
+    '📥 *bought* 50 airdopes @ 850 from Sharma Traders bill 4471 (or send a photo of the bill)\n' +
+    (owner ? '💸 *paid* 3500 shop rent cash\n🔢 *stock count* airdopes 141 40, cable 25\n' : '') +
     '📝 *quote* Ravi 10 airdopes at 1250 (then *convert quote 1* to bill it)\n' +
     '📤 *gave* 2 airdopes sample to Ravi · *3 cables damaged* · *returned* 2 airdopes from Ravi\n' +
-    '\nAsk:\n• stock of airdopes\n• stock / low stock\n• quotes (open quotations)\n• unbilled (goods out without a bill)\n• sales today / this month\n• credits' +
+    '\nAsk:\n• stock of airdopes\n• stock / low stock\n• quotes (open quotations)\n• unbilled (goods out without a bill)' +
+    (owner ? '\n• sales today / this month\n• credits\n\nShop: *profile* · *staff* · *add staff 9876543210 Ravi*' : '') +
     '\n\nI always show a summary first. Nothing is saved until you tap ✅ Confirm.';
 }
 
@@ -155,5 +157,6 @@ export const HOW_TO: Record<HowToTopic, string> = {
   stock_count: '🔢 To set how many you have in hand, e.g.\n*stock count airdopes 141 40, cable 25*',
   quotation: '📝 To send a quotation, send the customer, items, quantity and rate, e.g.\n*quote Ravi Electronics 10 airdopes at 1250, 5 cables at 199*\n(*estimate …* for an estimate; add *valid 30 days* to change how long it holds)\n\nTo change it: *revise quote 12 10 airdopes at 1200*\nWhen the customer agrees: *convert quote 12*\nTo see open ones: *quotes*',
   profile: '🏪 To change your shop details, send for example:\n*update gstin 36AABCU9603R1ZX*\n*update address 12-3, Abids Road, Hyderabad 500001*\n*update upi myshop@okhdfcbank*\n*update phone 9876543210*\n*update shop name Ravi Mobiles*\n\nSend a photo with the caption *logo* to put your logo on bills. Type *profile* to see what is saved now.',
+  staff: '👥 To let someone else bill from their own phone:\n*add staff 9876543210 Ravi*\nThey send *Hi* to this number and tap *Accept*.\n\nStaff can make bills and quotes, enter purchases and check stock. Sales reports, expenses, stock counts and shop settings stay with you.\n\n*staff* shows everyone · *remove staff Ravi* takes access away at once.',
   stock_out: '📤 When stock leaves without a bill, say what, how many and why, e.g.\n*gave 2 airdopes sample to Ravi*\n*3 cables damaged*\n*sent 5 airdopes on approval to Ravi*\n*sold 1 cable without bill*\n\nWhen it comes back: *returned 2 airdopes from Ravi*. To see what is out: *unbilled*'
 };

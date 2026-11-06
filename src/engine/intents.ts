@@ -31,7 +31,7 @@ export const REASON_LABEL: Record<StockOutReason, string> = {
 };
 
 export type QtyLine = { name: string; qty: string; unit?: string };
-export type HowToTopic = 'invoice' | 'purchase' | 'expense' | 'stock_count' | 'stock_out' | 'quotation' | 'profile';
+export type HowToTopic = 'invoice' | 'purchase' | 'expense' | 'stock_count' | 'stock_out' | 'quotation' | 'profile' | 'staff';
 export type ProfileField = 'gstin' | 'address' | 'upi' | 'name' | 'phone' | 'email';
 export type PeriodName = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'this_fy';
 
@@ -59,6 +59,9 @@ export type Intent =
   | { type: 'stock_return'; lines: QtyLine[]; party?: string }
   | { type: 'how_to'; about: HowToTopic }
   | { type: 'profile_show' }
+  | { type: 'staff_add'; phone: string; name?: string }
+  | { type: 'staff_list' }
+  | { type: 'staff_remove'; who: string }
   | { type: 'profile_update'; field: ProfileField; value: string | null }
   | { type: 'unknown'; hint?: string };
 

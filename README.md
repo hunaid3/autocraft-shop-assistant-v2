@@ -86,7 +86,13 @@ Phase 2, slice 1 (core loop):
 - [x] **Shop details** (owner, free, confirm card): *profile*; *update gstin …* / *my gst number is …* (state
       follows the GSTIN), *remove gstin*, *update address|upi|phone|email|shop name …*; a photo with caption
       *logo* sets the logo on PDFs. "How do I add my GST number?" gets the how-to.
-- [ ] Next: staff (*add staff*), bulk item upload, dashboard (Phase 5), recharges (Phase 3)
+- [x] **Staff**: owner sends *add staff 9876543210 Ravi* (invite), *staff* (list), *remove staff Ravi*
+      (access ends at once, past entries stay). The invitee's next message shows Accept/Decline
+      (`app.pending_invites` / `app.respond_invite`, engine only); invites come before sign-up. Up to 20 staff;
+      a number already in another shop is refused for now. Staff may bill, quote, enter purchases (typed or
+      photo), move stock and ask stock questions; sales, credits, expenses, stock counts, shop details, logo and
+      staff stay with the owner. An invite template that messages the person first comes with Meta templates.
+- [ ] Next: bulk item upload, dashboard (Phase 5), recharges (Phase 3)
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

@@ -20,11 +20,13 @@ import { commitDraft, UserError } from './commit.js';
 import { understand } from './parse.js';
 import { HOW_TO, helpText, profileText, runQuery } from './queries.js';
 import { signupRoute } from './signup.js';
+import { addStaff, inviteRoute, listStaff, removeStaff } from './staff.js';
 import { phase1Router, type PrepareContext, type Reply, type RouteContext, type Router } from './router.js';
 import { loadShop, loadCatalog } from './shop.js';
 import type { Intent, ParseContext, Parser } from './intents.js';
 
-const OWNER_ONLY = new Set<Intent['type']>(['purchase', 'expense', 'stock_count', 'profile_update']);
+// Staff may bill, quote, enter purchases (typed or photo), move stock and ask stock questions.
+const OWNER_ONLY = new Set<Intent['type']>(['expense', 'stock_count', 'profile_update', 'staff_add', 'staff_list', 'staff_remove']);
 const OWNER_ONLY_TEXT = 'Only the owner can do that. You can make bills and check stock.';
 const BILL_EXAMPLE = '*bought 50 airdopes @ 850 from Sharma Traders bill 4471*';
 
@@ -55,8 +57,9 @@ function buttonIntent(id: string | undefined): Intent {
 
 const IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: MediaDeps } = {}): Router {
+export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: MediaDeps; botPhone?: string } = {}): Router {
   const lowBalance = opts.lowBalance ?? 20;
+  const botPhone = opts.botPhone;
   const media = opts.media;
 
   async function parseContext(c: PrepareContext | RouteContext, tenantId: string): Promise<ParseContext> {
@@ -122,7 +125,10 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
 
   const route = async (ctx: RouteContext): Promise<Reply[]> => {
     const { sender, message, tx } = ctx;
-    if (sender.kind === 'unknown' && ['text', 'button'].includes(message.kind)) return signupRoute(tx, sender.phone, message);
+    if (sender.kind === 'unknown' && ['text', 'button'].includes(message.kind)) {
+      // A waiting staff invite comes before setting up a shop of their own
+      return (await inviteRoute(tx, sender.phone, message.kind === 'button' ? message.buttonId : undefined, message.text ?? '')) ?? signupRoute(tx, sender.phone, message);
+    }
     if (sender.kind !== 'member') return phase1Router(ctx);
     const isMedia = message.kind === 'image' || message.kind === 'document';
     if (!isMedia && !['text', 'button'].includes(message.kind)) return phase1Router(ctx);
@@ -162,6 +168,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     }
 
     if (OWNER_ONLY.has(intent.type) && sender.role !== 'owner') return text(OWNER_ONLY_TEXT);
+    if (intent.type === 'query' && ['sales_period', 'credits'].includes(intent.report) && sender.role !== 'owner') return text('Sales and credits are visible to the owner only.');
 
     switch (intent.type) {
       case 'help':
@@ -171,6 +178,12 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
         return text(HOW_TO[intent.about]);
       case 'profile_show':
         return text(await profileText(tx, shop.id));
+      case 'staff_add':
+        return addStaff(tx, shop.id, sender.userId, botPhone, intent.phone, intent.name);
+      case 'staff_list':
+        return listStaff(tx);
+      case 'staff_remove':
+        return removeStaff(tx, shop.id, sender.userId, intent.who);
       case 'query':
         return text(await runQuery(tx, intent, sender.role));
       case 'unknown':
@@ -243,9 +256,9 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     if (c.sender.kind !== 'member') return undefined;
     const m = c.message;
     if (m.kind === 'image' || m.kind === 'document') {
-      // Purchases are owner-only: don't download or spend AI on a staff member's photo
-      if (c.sender.role !== 'owner') return { reply: OWNER_ONLY_TEXT };
-      if (m.kind === 'image' && /^\s*(?:my\s+|shop\s+)?logo\b/i.test(m.text ?? '')) return prepareLogo(c, c.sender.tenantId);
+      if (m.kind === 'image' && /^\s*(?:my\s+|shop\s+)?logo\b/i.test(m.text ?? '')) {
+        return c.sender.role === 'owner' ? prepareLogo(c, c.sender.tenantId) : { reply: OWNER_ONLY_TEXT };
+      }
       return prepareBill(c, c.sender.tenantId);
     }
     if (m.kind === 'text') return { intent: await understand(m.text ?? '', parser, await parseContext(c, c.sender.tenantId)) };

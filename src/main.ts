@@ -51,7 +51,7 @@ const media = config.OPENAI_API_KEY && documents
 server.log.info({ billReading: Boolean(media) }, 'bill photo reading');
 
 const worker = startWorker(
-  { pool, router: shopRouter(parser, { media }), documents, whatsapp },
+  { pool, router: shopRouter(parser, { media, botPhone: config.BOT_PHONE }), documents, whatsapp },
   { workerId: config.WORKER_ID, concurrency: config.WORKER_CONCURRENCY, log: server.log, reporter }
 );
 

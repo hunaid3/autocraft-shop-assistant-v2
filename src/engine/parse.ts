@@ -49,8 +49,26 @@ export function profileRules(text: string): Intent | null {
   return null;
 }
 
+/** "add staff 9876543210 Ravi", "add staff Ravi 98765 43210", "staff", "remove staff Ravi" */
+export function staffRules(text: string): Intent | null {
+  const raw = text.trim().replace(/[.!]+$/, '');
+  const t = raw.toLowerCase();
+  if (/^(staff|my staff|staff list|team|my team|employees|workers)$/.test(t)) return { type: 'staff_list' };
+  if (/^(add|invite|remove|delete)\s+(staff|employee|worker|helper)$/.test(t) || /^how\b.*\b(staff|employee|worker)\b/.test(t)) return { type: 'how_to', about: 'staff' };
+  const add = /^(?:add|invite)\s+(?:a\s+)?(?:staff|employee|worker|helper)\s*:?\s+(.+)$/i.exec(raw);
+  if (add) {
+    const ph = /(\+?\d[\d\s-]{3,16}\d)/.exec(add[1]!);
+    if (!ph) return { type: 'how_to', about: 'staff' };
+    const name = add[1]!.replace(ph[1]!, ' ').replace(/\s+/g, ' ').replace(/^[,\s-]+|[,\s-]+$/g, '').trim();
+    return { type: 'staff_add', phone: ph[1]!, name: name || undefined };
+  }
+  const rm = /^(?:remove|delete)\s+(?:a\s+)?(?:staff|employee|worker|helper)\s*:?\s+(.+)$/i.exec(raw);
+  if (rm) return { type: 'staff_remove', who: rm[1]!.trim() };
+  return null;
+}
+
 export function fixedRules(text: string): Intent | null {
-  const profile = profileRules(text);
+  const profile = profileRules(text) ?? staffRules(text);
   if (profile) return profile;
   const t = lower(text).replace(/[.!?]+$/, '');
   if (!t) return { type: 'unknown' };
