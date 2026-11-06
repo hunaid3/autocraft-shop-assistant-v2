@@ -10,6 +10,7 @@ import { SimpleParser } from './engine/parse.js';
 import { OpenAiParser } from './engine/aiParser.js';
 import { chromiumRenderer } from './documents/pdf.js';
 import { SupabaseFileStore } from './documents/fileStore.js';
+import { OpenAiBillReader } from './engine/billReader.js';
 
 const config = loadConfig();
 const reporter = initSentry({ dsn: config.SENTRY_DSN, environment: config.APP_ENV, release: config.RELEASE });
@@ -36,11 +37,17 @@ const documents = config.SUPABASE_SECRET_KEY
   : undefined;
 if (!documents) server.log.warn('SUPABASE_SECRET_KEY not set: invoice PDFs will wait in the queue');
 
+const whatsapp = new CloudApiClient({ accessToken: config.META_ACCESS_TOKEN, phoneNumberId: config.META_PHONE_NUMBER_ID, graphVersion: config.META_GRAPH_VERSION });
+
+// Bill photos/PDFs need the AI reader (OpenAI key) and somewhere to keep the original (storage key).
+// Without either, the owner is asked to type the purchase instead.
+const media = config.OPENAI_API_KEY && documents
+  ? { whatsapp, fileStore: documents.fileStore, billReader: new OpenAiBillReader({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_MODEL }) }
+  : undefined;
+server.log.info({ billReading: Boolean(media) }, 'bill photo reading');
+
 const worker = startWorker(
-  {
-    pool, router: shopRouter(parser), documents,
-    whatsapp: new CloudApiClient({ accessToken: config.META_ACCESS_TOKEN, phoneNumberId: config.META_PHONE_NUMBER_ID, graphVersion: config.META_GRAPH_VERSION })
-  },
+  { pool, router: shopRouter(parser, { media }), documents, whatsapp },
   { workerId: config.WORKER_ID, concurrency: config.WORKER_CONCURRENCY, log: server.log, reporter }
 );
 

@@ -10,6 +10,7 @@ export interface LineIntent {
   ratePaise?: number;        // missing → the item's saved price
   discountPaise?: number;
   gstRate?: number;          // missing → item's rate, or the shop default for a new item
+  hsn?: string;              // from a bill; kept on new items
 }
 
 export interface PartyIntent {
@@ -29,7 +30,12 @@ export type Intent =
   | { type: 'edit' }
   | { type: 'query'; report: ReportName; item?: string; period?: PeriodName }
   | { type: 'invoice'; party: PartyIntent; lines: LineIntent[] }
-  | { type: 'purchase'; party: PartyIntent; lines: LineIntent[]; billNo?: string }
+  | {
+      type: 'purchase'; party: PartyIntent; lines: LineIntent[]; billNo?: string;
+      // set when read from a bill photo or PDF
+      source?: 'typed' | 'bill_image' | 'bill_pdf'; fileId?: string; billDate?: string;
+      printed?: { taxablePaise?: number; gstPaise?: number; totalPaise?: number };
+    }
   | { type: 'expense'; amountPaise: number; category: string; mode: string; paidTo?: string; note?: string }
   | { type: 'stock_count'; lines: Array<{ name: string; qty: string; unit?: string }> }
   | { type: 'how_to'; about: 'invoice' | 'purchase' | 'expense' | 'stock_count' }

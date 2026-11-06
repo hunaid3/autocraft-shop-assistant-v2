@@ -2,10 +2,15 @@
  * Decides the reply to one inbound message. Phase 1 answers by sender type only; Phase 2
  * replaces the member branch with the command router (stock, bill, quote, confirm...).
  *
- * Contract for every handler: it runs inside the transaction that also records the message as
- * processed and queues the replies, so any database work it does commits together with them.
- * It must not call WhatsApp or any outside service with side effects.
+ * Two steps per message:
+ *   prepare (optional) — runs BEFORE any transaction: slow reads such as the AI reader, downloading
+ *     media from WhatsApp, reading a bill photo. It may store an uploaded file, but must not change
+ *     business data. If it throws, the job is retried.
+ *   route — runs inside the transaction that also records the message as processed and queues the
+ *     replies, so any database work it does commits together with them. Quick work only; it must not
+ *     call WhatsApp or any outside service.
  */
+import type pg from 'pg';
 import type { Tx } from '../db/tenantTx.js';
 import type { InboundMessage } from '../webhook/parse.js';
 import type { Sender } from './senders.js';
@@ -20,9 +25,20 @@ export interface RouteContext {
   tx: Tx;
   /** our messages.id for this inbound message (drafts point back to it) */
   messageId?: string;
+  /** whatever prepare() returned */
+  prepared?: unknown;
 }
 
-export type Router = (ctx: RouteContext) => Promise<Reply[]>;
+export interface PrepareContext {
+  sender: Sender;
+  message: InboundMessage;
+  pool: pg.Pool;
+  messageId: string;
+}
+
+export type Router = ((ctx: RouteContext) => Promise<Reply[]>) & {
+  prepare?: (ctx: PrepareContext) => Promise<unknown>;
+};
 
 const CANT_READ: Partial<Record<InboundMessage['kind'], string>> = {
   audio: "I can't listen to voice notes yet. Please type your message.",

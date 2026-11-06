@@ -59,8 +59,17 @@ Phase 2, slice 1 (core loop):
       Made after Confirm via the `documents` queue, stored privately in Supabase Storage `shop-files/<tenant>/invoices/`,
       linked to the invoice, uploaded to WhatsApp and sent as a document. Safe to retry; a render crash never affects the bill.
 - [x] Shops without a GSTIN issue a **bill of supply**: no GST charged on the card, the invoice or the PDF
-- [ ] Next: bill photo reading (same model, image input), stock out without a bill, quotations
-- [ ] Before launch: CA review of the PDF layout; invoice prefixes ≤ 3 characters keep numbers within the 16-character legal limit
+- [x] Invoice numbers within the 16-character legal limit (Rule 46): prefix at most 3 characters, enforced in the database
+- [x] **Bill photo / PDF → purchase card.** The owner sends a supplier's bill; the engine downloads it from WhatsApp
+      (Meta hosts only, 10 MB cap), keeps the original in `shop-files/<tenant>/bills/`, turns a PDF into page images
+      (poppler `pdftoppm`, first 3 pages), and the AI model reads it into lines (strict JSON schema; the bill is
+      treated as a document, never as instructions). The engine recomputes every line and warns on the card if the
+      printed total differs by more than ₹2 or 1%. Confirm saves the purchase linked to the file (`source`,
+      `source_file_id`, `bill_date`), keeps HSN on new items and charges `bill_read` credits. Staff photos are not
+      downloaded. Download and AI reading run in the router's `prepare` step, outside the database transaction.
+      Needs `OPENAI_API_KEY` and `SUPABASE_SECRET_KEY`; without them the owner is asked to type the purchase.
+- [ ] Next: stock out without a bill, quotations
+- [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)
 
@@ -87,6 +96,7 @@ Meta ──POST /webhook──▶ signature ok? ──▶ store message once (un
                                                     │
 worker ◀── claim (one at a time per sender) ────────┘
   │  resolve sender → shop + role
+  │  router.prepare: slow work with no transaction open (AI reading, bill download + reading)
   │  router (Phase 1: greeting; Phase 2: commands)
   └▶ ONE transaction: work + message filed under the shop + replies into the outbox + 'outbound' jobs
 worker ◀── claim 'outbound' ──▶ WhatsApp Cloud API ──▶ store Meta's id; statuses advance it later
@@ -104,7 +114,9 @@ src/webhook/           server.ts (routes), signature.ts, parse.ts (Meta payloads
 src/queue/             queue.ts (claim/complete/fail), worker.ts (loops, retries, stale-job reaper)
 src/engine/            senders.ts (who is this?), router.ts (Phase 1 replies), process.ts (inbound/outbound jobs)
                        shopRouter.ts (Phase 2 router), intents.ts + parse.ts (understanding), drafts.ts (confirm
-                       cards), commit.ts (Confirm → records), queries.ts (questions), shop.ts (shop context)
+                       cards), commit.ts (Confirm → records), queries.ts (questions), shop.ts (shop context),
+                       billReader.ts (supplier bill image → lines)
+src/documents/         invoiceHtml.ts, pdf.ts (Chromium), invoiceJob.ts, fileStore.ts, pdfImages.ts (PDF → PNG)
 src/whatsapp/          client.ts: Cloud API client + RecordingClient for tests
 src/domain/            pure logic: money.ts (paise + GST), format.ts, itemMatch.ts
 src/db/tenantTx.ts     withTenant(): every shop's work runs through this

@@ -23,6 +23,11 @@ export function image(from: string, mediaId: string, caption?: string, id = wami
     image: { id: mediaId, mime_type: 'image/jpeg', sha256: 'abc', ...(caption ? { caption } : {}) } };
 }
 
+export function document(from: string, mediaId: string, mime = 'application/pdf', filename = 'bill.pdf', id = wamid()) {
+  return { from, id, timestamp: String(Math.floor(Date.now() / 1000)), type: 'document',
+    document: { id: mediaId, mime_type: mime, filename, sha256: 'abc' } };
+}
+
 export function payload(opts: { messages?: unknown[]; statuses?: unknown[]; contacts?: unknown[]; phoneNumberId?: string }) {
   return {
     object: 'whatsapp_business_account',

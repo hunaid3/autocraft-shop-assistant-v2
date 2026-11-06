@@ -29,13 +29,21 @@ export interface DraftLine {
 
 export type DraftPayload =
   | { kind: 'invoice'; party: { name?: string; gstin?: string; stateCode?: string }; supply: 'intra' | 'inter'; placeOfSupply: string; lines: DraftLine[]; totals: DocTotals }
-  | { kind: 'purchase'; party: { name?: string }; billNo?: string; lines: DraftLine[]; totals: { taxablePaise: number; gstPaise: number; totalPaise: number } }
+  | {
+      kind: 'purchase'; party: { name?: string; gstin?: string }; billNo?: string; lines: DraftLine[];
+      totals: { taxablePaise: number; gstPaise: number; totalPaise: number };
+      source?: 'typed' | 'bill_image' | 'bill_pdf'; fileId?: string; billDate?: string;
+    }
   | { kind: 'expense'; amountPaise: number; category: string; mode: string; paidTo?: string }
   | { kind: 'stock_count'; lines: Array<{ itemId: string | null; newItem: NewItem | null; name: string; unit: string; count: string; current: number }> };
 
 export const ACTION_FOR: Record<DraftPayload['kind'], string> = {
   invoice: 'invoice', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count'
 };
+
+/** Reading a bill photo or PDF costs more than typing (the AI image read is our costliest step). */
+export const actionFor = (p: DraftPayload): string =>
+  p.kind === 'purchase' && p.source && p.source !== 'typed' ? 'bill_read' : ACTION_FOR[p.kind];
 
 export type Built = { ok: true; payload: DraftPayload; summary: string; cost: number; balance: number } | { ok: false; reply: string };
 
@@ -45,7 +53,7 @@ export const qtyText = (q: string | number) => String(Number(q));
 type Resolved = { item: CatalogItem | null; newItem: NewItem | null } | { error: string };
 
 /** Find the item; unknown names become new items (created on Confirm), ambiguous ones ask. */
-function resolve(l: { name: string; unit?: string; gstRate?: number }, catalog: CatalogItem[], shop: Shop, pendingNew: Map<string, NewItem>): Resolved {
+function resolve(l: { name: string; unit?: string; gstRate?: number; hsn?: string }, catalog: CatalogItem[], shop: Shop, pendingNew: Map<string, NewItem>): Resolved {
   const m = matchItem(l.name, catalog);
   if (m.match) return { item: m.match, newItem: null };
   if (m.candidates.length) {
@@ -55,7 +63,7 @@ function resolve(l: { name: string; unit?: string; gstRate?: number }, catalog: 
   const key = l.name.toLowerCase();
   const existing = pendingNew.get(key);
   if (existing) return { item: null, newItem: existing };
-  const n: NewItem = { name: l.name, unit: l.unit ?? 'pcs', gstRate: l.gstRate ?? shop.settings.defaultGstRate, hsn: null };
+  const n: NewItem = { name: l.name, unit: l.unit ?? 'pcs', gstRate: l.gstRate ?? shop.settings.defaultGstRate, hsn: l.hsn && /^\d{4,8}$/.test(l.hsn) ? l.hsn : null };
   pendingNew.set(key, n);
   return { item: null, newItem: n };
 }
@@ -76,7 +84,7 @@ export function cardText(head: string, lines: string[], tail: string, footer: st
 const costLine = (cost: number, balance: number) =>
   cost > 0 ? `\n💳 ${cost} credit${cost === 1 ? '' : 's'} on Confirm · balance ${balance}` : '';
 
-async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice' | 'purchase') {
+async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice' | 'purchase', opts: { ratesExcludeGst?: boolean } = {}) {
   const catalog = await loadCatalog(tx);
   const pendingNew = new Map<string, NewItem>();
   const resolved: Array<{ r: LineIntent; item: CatalogItem | null; newItem: NewItem | null }> = [];
@@ -101,7 +109,8 @@ async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice'
     const gstRate = kind === 'invoice' && !shop.gstin ? 0 : r.gstRate ?? item?.gstRate ?? newItem!.gstRate;
     let a;
     try {
-      a = lineAmounts({ qty: r.qty, ratePaise, discountPaise: r.discountPaise ?? 0, gstRate, pricesIncludeGst: shop.settings.pricesIncludeGst });
+      // Bill rates are read as before-GST whatever the shop's typing setting is
+      a = lineAmounts({ qty: r.qty, ratePaise, discountPaise: r.discountPaise ?? 0, gstRate, pricesIncludeGst: opts.ratesExcludeGst ? false : shop.settings.pricesIncludeGst });
     } catch (e) {
       return { error: `${name}: ${(e as Error).message}` };
     }
@@ -118,7 +127,7 @@ async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice'
     }
     if (newItem) warnings.unshift(`🆕 ${name}: new item, GST ${gstRate}%`);
     lines.push({
-      itemId: item?.id ?? null, newItem, name, unit: item?.unit ?? newItem!.unit, hsn: item?.hsn ?? null,
+      itemId: item?.id ?? null, newItem, name, unit: item?.unit ?? newItem!.unit, hsn: item?.hsn ?? newItem?.hsn ?? r.hsn ?? null,
       qty: String(Number(r.qty)), ratePaise, discountPaise: r.discountPaise ?? 0, gstRate,
       taxablePaise: a.taxablePaise, gstPaise: a.gstPaise, totalPaise: a.totalPaise
     });
@@ -164,18 +173,28 @@ export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Bu
 
   if (intent.type === 'invoice' || intent.type === 'purchase') {
     if (!intent.lines.length) return fail('Which items?');
-    const built = await buildLines(tx, shop, intent.lines, intent.type);
+    const fromBill = intent.type === 'purchase' && !!intent.source && intent.source !== 'typed';
+    const built = await buildLines(tx, shop, intent.lines, intent.type, { ratesExcludeGst: fromBill });
     if ('error' in built) return fail(built.error!);
     const { lines, warnings } = built;
     const warn = warnings.slice(0, 6).join('\n') + (warnings.length > 6 ? '\n…' : '');
 
     if (intent.type === 'purchase') {
       const totals = lines.reduce((a, l) => ({ taxablePaise: a.taxablePaise + l.taxablePaise, gstPaise: a.gstPaise + l.gstPaise, totalPaise: a.totalPaise + l.totalPaise }), { taxablePaise: 0, gstPaise: 0, totalPaise: 0 });
-      const cost = await creditCost(tx, ACTION_FOR.purchase);
-      const head = `📥 *Purchase*${intent.party.name ? ' from ' + intent.party.name : ''}${intent.billNo ? ' · bill ' + intent.billNo : ''}\n` +
-        `Taxable ₹${formatInr(totals.taxablePaise)} + GST ₹${formatInr(totals.gstPaise)} = *₹${formatInr(totals.totalPaise)}*`;
-      return { ok: true, cost, balance, summary: cardText(head, lines.map(lineText), warn, costLine(cost, balance)),
-        payload: { kind: 'purchase', party: { name: intent.party.name }, billNo: intent.billNo, lines, totals } };
+      const payload: DraftPayload = {
+        kind: 'purchase', party: { name: intent.party.name, gstin: intent.party.gstin }, billNo: intent.billNo, lines, totals,
+        source: intent.source ?? 'typed', fileId: intent.fileId, billDate: intent.billDate
+      };
+      const cost = await creditCost(tx, actionFor(payload));
+      // Code.gs check: the bill's printed total vs what the lines add up to (₹2 or 1%, whichever is more)
+      const printed = intent.printed?.totalPaise;
+      const mismatch = printed && Math.abs(printed - totals.totalPaise) > Math.max(200, Math.round(printed * 0.01))
+        ? `\n⚠️ Bill says ₹${formatInr(printed)} but the lines add up to ₹${formatInr(totals.totalPaise)}. Please check before confirming.` : '';
+      const head = `📥 *Purchase*${intent.party.name ? ' from ' + intent.party.name : ''}${intent.billNo ? ' · bill ' + intent.billNo : ''}` +
+        (intent.billDate ? ` · ${intent.billDate.split('-').reverse().join('-')}` : '') +
+        (fromBill ? `\n📷 Read from the ${intent.source === 'bill_pdf' ? 'PDF' : 'photo'}: check each line` : '') +
+        `\nTaxable ₹${formatInr(totals.taxablePaise)} + GST ₹${formatInr(totals.gstPaise)} = *₹${formatInr(totals.totalPaise)}*` + mismatch;
+      return { ok: true, cost, balance, payload, summary: cardText(head, lines.map(lineText), warn, costLine(cost, balance)) };
     }
 
     const buyerState = intent.party.gstin?.slice(0, 2);

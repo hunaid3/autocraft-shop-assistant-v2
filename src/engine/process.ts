@@ -55,8 +55,13 @@ export async function processInbound(deps: EngineDeps, p: InboundPayload): Promi
 
   const sender = await withoutTenant(deps.pool, (tx) => resolveSender(tx, message.from));
 
+  // Slow reads (AI, media) happen here, outside any transaction, so no connection is held while waiting.
+  const prepared = deps.router.prepare
+    ? await deps.router.prepare({ sender, message, pool: deps.pool, messageId: p.message_id })
+    : undefined;
+
   const run = async (tx: Tx, tenantId: string | null, userId: string | null) => {
-    const replies = await deps.router({ sender, message, tx, messageId: p.message_id });
+    const replies = await deps.router({ sender, message, tx, messageId: p.message_id, prepared });
     const upd = await tx.query(
       `update messages set tenant_id = $2, user_id = $3, status = 'processed', processed_at = now()
         where id = $1 and tenant_id is null and status = 'queued'`, [p.message_id, tenantId, userId]);

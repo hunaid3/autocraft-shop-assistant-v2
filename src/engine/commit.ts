@@ -6,7 +6,7 @@
 import type { Tx } from '../db/tenantTx.js';
 import { formatDocNumber, formatInr, fyOf, istDate } from '../domain/format.js';
 import { normKey } from '../domain/itemMatch.js';
-import { ACTION_FOR, qtyText, type DraftLine, type DraftPayload, type NewItem } from './drafts.js';
+import { ACTION_FOR, actionFor, qtyText, type DraftLine, type DraftPayload, type NewItem } from './drafts.js';
 import { stockMap, type Shop } from './shop.js';
 import { enqueue } from '../queue/queue.js';
 import type { InvoicePdfPayload } from '../documents/invoiceJob.js';
@@ -117,13 +117,15 @@ async function commitInvoice(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind
 async function commitPurchase(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'purchase' }>, cost: number, userId: string): Promise<CommitResult> {
   const created = await ensureItems(tx, shop.id, d.lines, 'purchase', userId);
   const supplier = await upsertParty(tx, shop.id, 'supplier', d.party);
+  const source = d.source ?? 'typed';
   let purchaseId: string;
   try {
     await tx.query('savepoint purchase_insert');
     const { rows } = await tx.query(
-      `insert into purchases (tenant_id, supplier_id, supplier_name, bill_no, entry_date, source, taxable_paise, gst_paise, total_paise, created_by)
-       values ($1,$2,$3,$4,$5,'typed',$6,$7,$8,$9) returning id`,
-      [shop.id, supplier.id, supplier.name, d.billNo ?? null, istDate(), d.totals.taxablePaise, d.totals.gstPaise, d.totals.totalPaise, userId]);
+      `insert into purchases (tenant_id, supplier_id, supplier_name, bill_no, bill_date, entry_date, source, source_file_id, taxable_paise, gst_paise, total_paise, created_by)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`,
+      [shop.id, supplier.id, supplier.name, d.billNo ?? null, d.billDate ?? null, istDate(), source, d.fileId ?? null,
+        d.totals.taxablePaise, d.totals.gstPaise, d.totals.totalPaise, userId]);
     purchaseId = rows[0].id;
     await tx.query('release savepoint purchase_insert');
   } catch (e) {
@@ -143,7 +145,7 @@ async function commitPurchase(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kin
       [shop.id, l.itemId, l.qty, purchaseId, supplier.name, userId]);
     await tx.query('update items set purchase_price_paise = $2 where id = $1 and purchase_price_paise = 0', [l.itemId, l.ratePaise]);
   }
-  const balance = await debit(tx, shop.id, cost, ACTION_FOR.purchase, 'purchase', purchaseId, userId);
+  const balance = await debit(tx, shop.id, cost, actionFor(d), 'purchase', purchaseId, userId);
   return {
     refType: 'purchase', refId: purchaseId, balance,
     reply: `✅ Purchase saved: ₹${formatInr(d.totals.totalPaise)}${supplier.name ? ' from ' + supplier.name : ''}${d.billNo ? ', bill ' + d.billNo : ''}` +
