@@ -148,8 +148,11 @@ and rename the file to the version Supabase records, so the two never drift).
 Supabase Vault as `autocraft_v2_db_engine` (Dashboard → Project Settings → Vault). It has never
 appeared in chat or in this repo.
 
-**TODO once the AWS account is active:** copy it into AWS Secrets Manager (Mumbai) as
-`autocraft/v2/db-engine` with keys `username=app_engine`, `password=…`; the engine reads it from there.
+**OpenAI key:** stored on 6 Nov 2026 in Supabase Vault as `openai_api_key` (entered by Hunaid in the SQL editor).
+
+**TODO once the AWS account is active:** copy both into AWS Secrets Manager (Mumbai):
+`autocraft/v2/db-engine` with keys `username=app_engine`, `password=…`, and `autocraft/v2/openai` with
+`OPENAI_API_KEY`. The engine reads them from there at start-up.
 To rotate, run the same block again after dropping the Vault entry, then update Secrets Manager.
 
 The engine's `DATABASE_URL` uses `app_engine` through Supavisor, never `postgres` or the service key.
