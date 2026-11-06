@@ -64,6 +64,15 @@ describe('invoice template', () => {
     expect(formatDocNumber('INV', '2026-27', 9999).length).toBeLessThanOrEqual(MAX_INVOICE_NUMBER_LENGTH);
   });
 
+  it("carries the shop's branding only: no AutoCraft name or logo, and no logo at all unless the shop gave one", async () => {
+    const plain = await invoiceHtml(sampleDoc());
+    expect(plain).not.toMatch(/autocraft/i);
+    expect(plain).not.toContain('class="logo"');
+    const branded = await invoiceHtml(sampleDoc({ shop: { ...sampleDoc().shop, logoDataUri: 'data:image/png;base64,AAAA' } }));
+    expect(branded).toContain('<img class="logo" src="data:image/png;base64,AAAA"');
+    expect(branded).not.toMatch(/autocraft/i);
+  });
+
   it('fonts are embedded (no network needed to render Hindi or ₹)', async () => {
     const html = await invoiceHtml(sampleDoc());
     expect(html).toContain("font-family:'Noto Sans Devanagari'");
