@@ -1,3 +1,4 @@
+import { gstinCheckChar } from '../../src/domain/gstin.js';
 import pg from 'pg';
 import { randomInt } from 'node:crypto';
 import { withTenant } from '../../src/db/tenantTx.js';
@@ -54,4 +55,12 @@ export async function expectSqlError(p: Promise<unknown>, code: string): Promise
     return;
   }
   throw new Error(`expected SQLSTATE ${code}, but the statement succeeded`);
+}
+
+/** A valid, unique GSTIN for a test shop (one GSTIN per shop is enforced). */
+export function randomGstin(state = '36'): string {
+  const L = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const pick = (s: string, n: number) => Array.from({ length: n }, () => s[Math.floor(Math.random() * s.length)]).join('');
+  const base = `${state}${pick(L, 5)}${pick('0123456789', 4)}${pick(L, 1)}1Z`;
+  return base + gstinCheckChar(base);
 }

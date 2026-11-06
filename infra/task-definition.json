@@ -22,7 +22,8 @@
         { "name": "META_APP_ID", "value": "1541875984627224" },
         { "name": "META_WABA_ID", "value": "1482068713779854" },
         { "name": "DB_HOSTS", "value": "aws-0-ap-south-1.pooler.supabase.com,aws-1-ap-south-1.pooler.supabase.com" },
-        { "name": "CHROME_PATH", "value": "/usr/bin/chromium" }
+        { "name": "CHROME_PATH", "value": "/usr/bin/chromium" },
+        { "name": "SES_FROM", "value": "AutoCraft Shop Assistant <support@autocraft-solutions.com>" }
       ],
       "secrets": [
         { "name": "DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:ap-south-1:886069266990:secret:autocraft/v2/db-engine-password-MqtvUx" }

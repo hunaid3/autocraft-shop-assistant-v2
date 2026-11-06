@@ -8,6 +8,7 @@ import { formatDocNumber, formatInr, fyOf, istDate } from '../domain/format.js';
 import { normKey } from '../domain/itemMatch.js';
 import { ACTION_FOR, actionFor, openForReturn, PROFILE_LABEL, qtyText, STAYS_OPEN, type DraftLine, type DraftPayload, type NewItem } from './drafts.js';
 import { REASON_LABEL } from './intents.js';
+import { commitStaffAdd } from './staff.js';
 import { stockMap, type Shop } from './shop.js';
 import { enqueue } from '../queue/queue.js';
 import type { InvoicePdfPayload, QuotationPdfPayload } from '../documents/invoiceJob.js';
@@ -305,8 +306,14 @@ async function commitStockReturn(tx: Tx, shop: Shop, d: Extract<DraftPayload, { 
 
 const PROFILE_COLUMN = { gstin: 'gstin', address: 'address', upi: 'upi_id', name: 'name', phone: 'phone', email: 'email' } as const;
 
+// The bot's own number is re-checked on Confirm via the payload's phone (already validated on the card)
+const botPhoneFor = (_p: { phone: string }): string | undefined => process.env.BOT_PHONE;
+
 async function commitProfile(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'profile_update' }>, userId: string): Promise<CommitResult> {
   const col = PROFILE_COLUMN[d.field];
+  if (d.field === 'gstin' && d.value && (await tx.query('select app.gstin_in_use($1, $2) as used', [d.value, shop.id])).rows[0].used) {
+    throw new UserError(`${d.value} is already registered to another shop on AutoCraft. Nothing was changed.`);
+  }
   if (d.field === 'gstin' && d.stateCode) {
     await tx.query('update tenants set gstin = $2, state_code = $3 where id = $1', [shop.id, d.value, d.stateCode]);
   } else {
@@ -328,6 +335,13 @@ export async function commitDraft(tx: Tx, shop: Shop, payload: DraftPayload, cos
     case 'stock_count': return commitStockCount(tx, shop, payload, cost, userId);
     case 'stock_out': return commitStockOut(tx, shop, payload, cost, userId);
     case 'profile_update': return commitProfile(tx, shop, payload, userId);
+    case 'staff_add': {
+      const r = await commitStaffAdd(tx, shop.id, userId, botPhoneFor(payload), payload.phone, payload.name, cost);
+      if ('error' in r) throw new UserError(r.error + ' Nothing was charged.');
+      const balance = await debit(tx, shop.id, cost, ACTION_FOR.staff_add, 'membership', r.membershipId, userId);
+      return { refType: 'membership', refId: r.membershipId, balance, reply: r.reply + creditsLine(cost, balance) };
+    }
+    case 'support_request': throw new UserError('Send your problem as a message; nothing to confirm.');
     case 'stock_return': return commitStockReturn(tx, shop, payload, cost, userId);
   }
 }

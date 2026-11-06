@@ -13,6 +13,7 @@ import { SupabaseFileStore } from './documents/fileStore.js';
 import { OpenAiBillReader } from './engine/billReader.js';
 import { prepareRuntimeEnv } from './runtimeEnv.js';
 import { checkMeta, ensureSubscribed } from './whatsapp/metaCheck.js';
+import { SesEmailSender } from './notify/email.js';
 
 // In AWS only the database password is given; the rest comes from Supabase Vault.
 const db = await prepareRuntimeEnv(process.env, (m) => console.log(JSON.stringify({ level: 30, msg: m })));
@@ -50,8 +51,11 @@ const media = config.OPENAI_API_KEY && documents
   : undefined;
 server.log.info({ billReading: Boolean(media) }, 'bill photo reading');
 
+const notify = { email: config.SES_FROM ? new SesEmailSender({ from: config.SES_FROM }) : undefined };
+server.log.info({ supportEmail: Boolean(notify.email) }, 'support alerts');
+
 const worker = startWorker(
-  { pool, router: shopRouter(parser, { media, botPhone: config.BOT_PHONE }), documents, whatsapp },
+  { pool, router: shopRouter(parser, { media, botPhone: config.BOT_PHONE }), documents, whatsapp, notify },
   { workerId: config.WORKER_ID, concurrency: config.WORKER_CONCURRENCY, log: server.log, reporter }
 );
 

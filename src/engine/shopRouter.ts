@@ -18,9 +18,13 @@ import type { BillReader, BillReading } from './billReader.js';
 import { buildDraft, resolveDraft, saveDraft, takePendingDraft } from './drafts.js';
 import { commitDraft, UserError } from './commit.js';
 import { understand } from './parse.js';
-import { HOW_TO, helpText, profileText, runQuery } from './queries.js';
+import { HOW_TO, profileText, runQuery } from './queries.js';
 import { signupRoute } from './signup.js';
-import { addStaff, inviteRoute, listStaff, removeStaff } from './staff.js';
+import { checkStaffAdd, inviteRoute, listStaff, removeStaff, staffCard } from './staff.js';
+import { helpMenu, helpTopic, type HelpTopic } from './help.js';
+import { ASK_PROBLEM, captureSupport } from './support.js';
+import { supportRules } from './parse.js';
+import { creditBalance, creditCost } from './shop.js';
 import { phase1Router, type PrepareContext, type Reply, type RouteContext, type Router } from './router.js';
 import { loadShop, loadCatalog } from './shop.js';
 import type { Intent, ParseContext, Parser } from './intents.js';
@@ -42,7 +46,8 @@ type Prepared =
   | { intent: Intent }
   | { logo: { path: string; mime: string; size: number } }
   | { bill: BillReading; file: BillFile }
-  | { reply: string };
+  | { reply: string }
+  | { support: { text: string; file?: { path: string; mime: string; size: number } } };
 
 const text = (t: string): Reply[] => [{ kind: 'text', text: t }];
 
@@ -51,7 +56,12 @@ function buttonIntent(id: string | undefined): Intent {
     case 'CONFIRM': return { type: 'confirm' };
     case 'CANCEL': return { type: 'cancel' };
     case 'EDIT': return { type: 'edit' };
-    default: return { type: 'unknown' };
+    case 'MENU': return { type: 'help' };
+    case 'SUPPORT': return { type: 'support' };
+    default: {
+      const t = /^HELP:([A-Z]+)$/.exec((id ?? '').toUpperCase());
+      return t ? { type: 'help_topic', topic: t[1]!.toLowerCase() as HelpTopic } : { type: 'unknown' };
+    }
   }
 }
 
@@ -125,6 +135,14 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
 
   const route = async (ctx: RouteContext): Promise<Reply[]> => {
     const { sender, message, tx } = ctx;
+    if (sender.kind === 'unknown' && message.kind === 'text') {
+      // Someone not registered (e.g. stuck at sign-up) can still reach AutoCraft
+      const s = supportRules(message.text ?? '');
+      if (s?.type === 'support') {
+        return s.problem ? captureSupport(tx, sender, null, s.problem, null)
+          : text('💬 Send *support* followed by your problem in one message, e.g.\n*support my GSTIN is already registered*');
+      }
+    }
     if (sender.kind === 'unknown' && ['text', 'button'].includes(message.kind)) {
       // A waiting staff invite comes before setting up a shop of their own
       return (await inviteRoute(tx, sender.phone, message.kind === 'button' ? message.buttonId : undefined, message.text ?? '')) ?? signupRoute(tx, sender.phone, message);
@@ -137,6 +155,18 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     const prepared = ctx.prepared as Prepared | undefined;
     if (isMedia && !prepared) return text("I couldn't read that file. Please send it again.");
     if (prepared && 'reply' in prepared) return text(prepared.reply);
+    if (prepared && 'support' in prepared) {
+      let fileId: string | null = null;
+      if (prepared.support.file) {
+        fileId = (await tx.query(
+          `insert into files (tenant_id, kind, path, mime, size_bytes, created_by) values ($1, 'export', $2, $3, $4, $5)
+           on conflict (bucket, path) do update set size_bytes = excluded.size_bytes returning id`,
+          [shop.id, prepared.support.file.path, prepared.support.file.mime, prepared.support.file.size, sender.userId])).rows[0].id;
+      }
+      const d = await takePendingDraft(tx, sender.userId);
+      if (d) await resolveDraft(tx, d.id, 'confirmed');
+      return captureSupport(tx, sender, shop.id, prepared.support.text || '(photo only)', fileId);
+    }
     if (prepared && 'logo' in prepared) {
       const { rows: [f] } = await tx.query(
         `insert into files (tenant_id, kind, path, mime, size_bytes, created_by) values ($1, 'logo', $2, $3, $4, $5)
@@ -173,13 +203,28 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     switch (intent.type) {
       case 'help':
       case 'greeting':
-        return text(helpText(sender.userName, sender.role));
+        return helpMenu(sender.userName, sender.role);
+      case 'help_topic':
+        return helpTopic(intent.topic, sender.role);
+      case 'support': {
+        if (intent.problem) return captureSupport(tx, sender, shop.id, intent.problem, null);
+        await saveDraft(tx, shop.id, sender.userId, { ok: true, cost: 0, balance: 0, summary: 'Waiting for the problem message', payload: { kind: 'support_request' } }, ctx.messageId ?? null);
+        return text(ASK_PROBLEM);
+      }
       case 'how_to':
         return text(HOW_TO[intent.about]);
       case 'profile_show':
         return text(await profileText(tx, shop.id));
-      case 'staff_add':
-        return addStaff(tx, shop.id, sender.userId, botPhone, intent.phone, intent.name);
+      case 'staff_add': {
+        const ok = await checkStaffAdd(tx, shop.id, botPhone, intent.phone);
+        if ('error' in ok) return text(ok.error);
+        const cost = await creditCost(tx, 'staff_add');
+        const balance = await creditBalance(tx);
+        const summary = staffCard(ok.phone, intent.name, cost, balance);
+        if (cost > balance) return text(`${summary}\n\n💳 Not enough credits yet, so nothing was done.`);
+        await saveDraft(tx, shop.id, sender.userId, { ok: true, cost, balance, summary, payload: { kind: 'staff_add', phone: ok.phone, name: intent.name } }, ctx.messageId ?? null);
+        return [{ kind: 'buttons', text: summary + '\n\nSend the invite?', buttons: [{ id: 'CONFIRM', title: '✅ Confirm' }, { id: 'CANCEL', title: '❌ Cancel' }] }];
+      }
       case 'staff_list':
         return listStaff(tx);
       case 'staff_remove':
@@ -255,6 +300,26 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
   const prepare = async (c: PrepareContext): Promise<Prepared | undefined> => {
     if (c.sender.kind !== 'member') return undefined;
     const m = c.message;
+    // Waiting for a "Talk to AutoCraft" message? Then this message is the problem (a photo is attached, not read).
+    if ((m.kind === 'text' || m.kind === 'image') && !/^\s*(cancel|stop|no)\s*$/i.test(m.text ?? '')) {
+      const waiting = await withTenant(c.pool, c.sender.tenantId, (tx) => tx.query(
+        "select 1 from drafts where user_id = $1 and status = 'pending' and kind = 'support_request' and expires_at > now()", [c.sender.kind === 'member' ? c.sender.userId : null]));
+      if (waiting.rowCount) {
+        if (m.kind === 'text') return { support: { text: m.text ?? '' } };
+        if (media && m.media?.id) {
+          try {
+            const f = await media.whatsapp.downloadMedia(m.media.id, 5 * 1024 * 1024);
+            const ext = f.mime === 'image/png' ? 'png' : 'jpg';
+            const path = `${c.sender.tenantId}/support/${m.waMessageId.replace(/[^A-Za-z0-9._-]/g, '_')}.${ext}`;
+            await media.fileStore.put(path, f.bytes, f.mime);
+            return { support: { text: m.text ?? '', file: { path, mime: f.mime, size: f.bytes.length } } };
+          } catch {
+            return { support: { text: (m.text ?? '') + ' (a photo was sent but could not be saved)' } };
+          }
+        }
+        return { support: { text: (m.text ?? '') + ' (photo)' } };
+      }
+    }
     if (m.kind === 'image' || m.kind === 'document') {
       if (m.kind === 'image' && /^\s*(?:my\s+|shop\s+)?logo\b/i.test(m.text ?? '')) {
         return c.sender.role === 'owner' ? prepareLogo(c, c.sender.tenantId) : { reply: OWNER_ONLY_TEXT };

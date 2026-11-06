@@ -26,6 +26,8 @@ const schema = z.object({
   SUPABASE_SECRET_KEY: z.string().min(20).optional(),
   CHROME_PATH: z.string().optional(),   // headless Chromium for PDFs; the container sets it
   SENTRY_DSN: z.string().url().optional(),
+  // Support alerts by email through Amazon SES (Mumbai). Unset → WhatsApp alert only.
+  SES_FROM: z.string().min(3).optional(),   // e.g. "AutoCraft Shop Assistant <support@autocraft-solutions.com>"
   APP_ENV: z.enum(['production', 'staging', 'development']).default('development'),
   RELEASE: z.string().optional(),   // git sha, set by the deploy
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info')

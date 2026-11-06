@@ -8,9 +8,8 @@ import { shopRouter } from '../../src/engine/shopRouter.js';
 import { SimpleParser } from '../../src/engine/parse.js';
 import { MemoryFileStore } from '../../src/documents/fileStore.js';
 import type { BillReader } from '../../src/engine/billReader.js';
-import { gstinCheckChar } from '../../src/domain/gstin.js';
 import { APP_SECRET, PHONE_NUMBER_ID, VERIFY_TOKEN, image, payload, signed, text } from '../fixtures/meta.js';
-import { admin, engine, randomPhone } from './helpers.js';
+import { admin, engine, randomGstin, randomPhone } from './helpers.js';
 
 const wa = new RecordingClient();
 const store = new MemoryFileStore();
@@ -18,9 +17,8 @@ const noReader: BillReader = { async read() { throw new Error('should not read a
 let app: FastifyInstance;
 let worker: Worker;
 const phone = randomPhone();
-const G = (base14: string) => base14 + gstinCheckChar(base14);
-const GSTIN_TS = G('36AABCU9603R1Z');
-const GSTIN_MH = G('27AAPFU0939F1Z');
+const GSTIN_TS = randomGstin('36');
+const GSTIN_MH = randomGstin('27');
 
 beforeAll(async () => {
   app = buildServer({ pool: engine, appSecret: APP_SECRET, verifyToken: VERIFY_TOKEN, phoneNumberId: PHONE_NUMBER_ID, logLevel: 'silent' });
@@ -72,7 +70,7 @@ describe('sign-up on WhatsApp', () => {
     expect(t).toMatchObject({ name: 'Sana Mobiles', gstin: GSTIN_TS, state_code: '36', upi_id: 'sanamobiles@okaxis', phone, balance: 100, role: 'owner' });
     expect((await admin.query('select name from users where phone = $1', [phone])).rows[0].name).toBe('Sana');
     expect((await admin.query('select 1 from signup_sessions where phone = $1', [phone])).rowCount).toBe(0);
-    expect(await say('help')).toContain('*bill*');
+    expect(await say('help')).toContain('Menu');
   });
 
   it('without a GSTIN: state by name or short form, UPI skipped', async () => {

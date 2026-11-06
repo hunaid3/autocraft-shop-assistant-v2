@@ -48,8 +48,9 @@ describe('credits', () => {
 
   it('prices come from the table', async () => {
     const { rows } = await admin.query(
-      "select app.credit_cost('invoice') inv, app.credit_cost('bulk_import', 248) bulk, app.credit_cost('bulk_import', 10) ten, app.credit_cost('query') q");
-    expect(rows[0]).toEqual({ inv: 3, bulk: 25, ten: 1, q: 0 });
+      "select app.credit_cost('invoice') inv, app.credit_cost('bulk_import') bulk, app.credit_cost('bulk_import_small') small, app.credit_cost('staff_add') staff, app.credit_cost('query') q");
+    // item uploads are priced per file (6 Nov 2026): 10 credits under 10 items, 25 otherwise
+    expect(rows[0]).toEqual({ inv: 3, bulk: 25, small: 10, staff: 25, q: 0 });
   });
 
   it('debits and refuses when the balance is too low, leaving nothing changed', async () => {

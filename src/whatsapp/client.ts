@@ -4,8 +4,13 @@
  */
 
 export type OutboundMessage =
-  | { kind: 'text'; to: string; text: string }
   | { kind: 'buttons'; to: string; text: string; buttons: Array<{ id: string; title: string }> }
+  // A menu: one button opens a list of up to 10 rows; tapping a row comes back like a button tap.
+  | { kind: 'list'; to: string; text: string; button: string; rows: Array<{ id: string; title: string; description?: string }>; sectionTitle?: string }
+  // Free text to someone outside the 24-hour window is refused by Meta (#131047); then the approved
+  // template is sent instead, with the given body parameters.
+  | { kind: 'text'; to: string; text: string; fallbackTemplate?: { name: string; language: string; params: string[] } }
+  | { kind: 'template'; to: string; name: string; language: string; params: string[] }
   // A stored file (fileId) is uploaded to Meta at send time, which turns it into a mediaId.
   | { kind: 'document'; to: string; caption?: string; filename: string; mediaId?: string; fileId?: string };
 
@@ -40,6 +45,28 @@ export function toCloudApiBody(msg: OutboundMessage): Record<string, unknown> {
           type: 'button',
           body: { text: msg.text.slice(0, 1024) },
           action: { buttons: msg.buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id.slice(0, 256), title: b.title.slice(0, 20) } })) }
+        }
+      };
+    case 'list':
+      return {
+        ...base, type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: msg.text.slice(0, 4096) },
+          action: {
+            button: msg.button.slice(0, 20),
+            sections: [{ title: (msg.sectionTitle ?? 'Topics').slice(0, 24), rows: msg.rows.slice(0, 10).map((r) => ({
+              id: r.id.slice(0, 200), title: r.title.slice(0, 24), ...(r.description ? { description: r.description.slice(0, 72) } : {})
+            })) }]
+          }
+        }
+      };
+    case 'template':
+      return {
+        ...base, type: 'template',
+        template: {
+          name: msg.name, language: { code: msg.language },
+          components: msg.params.length ? [{ type: 'body', parameters: msg.params.map((t) => ({ type: 'text', text: t.replace(/[\n\t]+/g, ' ').replace(/ {4,}/g, '   ').slice(0, 1000) })) }] : []
         }
       };
     case 'document':

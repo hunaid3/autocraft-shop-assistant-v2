@@ -92,6 +92,20 @@ Phase 2, slice 1 (core loop):
       a number already in another shop is refused for now. Staff may bill, quote, enter purchases (typed or
       photo), move stock and ask stock questions; sales, credits, expenses, stock counts, shop details, logo and
       staff stay with the owner. An invite template that messages the person first comes with Meta templates.
+- [x] **Staff charge (6 Nov decision):** 25 credits per invite on a confirm card; refunded if declined or
+      withdrawn before acceptance (`app.credits_refund`, ledger kind `refund`); none after acceptance; re-adding
+      charges again; at most 5 staff including waiting invites.
+- [x] **One GSTIN per shop:** checked at sign-up and *update gstin* (`app.gstin_in_use`), unique index
+      `tenants_gstin_unique` on active shops.
+- [x] **Help menu:** *help*/*menu*/*hi* → short text + 📋 Menu (WhatsApp list, 8 topics); a topic returns
+      examples (incl. Hinglish) and prices with *Back to menu*; staff see only their topics; *help bill* etc.
+- [x] **Talk to AutoCraft:** *support* (then one message, photo allowed) or *support <problem>*; works before
+      sign-up too. Saved in `support_requests` (ref SR-0001…) with shop details and the last 2 hours of
+      messages; alerts to +91 86188 41504 on WhatsApp (falls back to template `support_request_alert` outside
+      the 24-hour window) and to support@autocraft-solutions.com via SES (`SES_FROM`, task role may only send
+      from that address). Max 5 a day per number.
+- [x] **Item-upload prices set:** 10 credits for a file under 10 items (`bulk_import_small`), 25 otherwise
+      (`bulk_import`), per file. The upload itself is next.
 - [ ] Next: bulk item upload, dashboard (Phase 5), recharges (Phase 3)
 - [ ] Before launch: CA review of the PDF layout
 

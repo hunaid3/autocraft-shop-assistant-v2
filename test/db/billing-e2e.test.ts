@@ -12,7 +12,8 @@ import { SimpleParser } from '../../src/engine/parse.js';
 import { withTenant } from '../../src/db/tenantTx.js';
 import { formatDocNumber, fyOf, istDate } from '../../src/domain/format.js';
 import { APP_SECRET, PHONE_NUMBER_ID, VERIFY_TOKEN, buttonReply, payload, signed, text } from '../fixtures/meta.js';
-import { admin, engine, newItem, newShop, randomPhone } from './helpers.js';
+import { admin, engine, newItem, newShop, randomGstin, randomPhone } from './helpers.js';
+const SHOP_GSTIN = randomGstin('36');
 import { MemoryFileStore } from '../../src/documents/fileStore.js';
 import { chromiumRenderer, type PdfRenderer } from '../../src/documents/pdf.js';
 import { processInvoicePdf } from '../../src/documents/invoiceJob.js';
@@ -37,7 +38,7 @@ const FY = fyOf(istDate());
 beforeAll(async () => {
   S = await newShop('Murtaza Electronics', '36');
   // a GST-registered shop with a UPI id (the PDF prints a QR)
-  await admin.query("update tenants set gstin = '36AABCU9603R1ZM', upi_id = 'murtaza@okhdfcbank', address = 'Abids, Hyderabad' where id = $1", [S.tenantId]);
+  await admin.query("update tenants set gstin = $2, upi_id = 'murtaza@okhdfcbank', address = 'Abids, Hyderabad' where id = $1", [S.tenantId, SHOP_GSTIN]);
   airdopes = await newItem(S.tenantId, 'boAt Airdopes 141', { sale_price_paise: 125000, purchase_price_paise: 85000, unit: 'pcs' });
   cable = await newItem(S.tenantId, 'USB-C Cable', { sale_price_paise: 19900 });
   await withTenant(engine, S.tenantId, async (tx) => {
@@ -268,7 +269,7 @@ describe('invoice PDF', () => {
     expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
     const text = pdfText(bytes);
     if (text) {
-      for (const s of ['TAX INVOICE', inv!.number, 'Murtaza Electronics', '36AABCU9603R1ZM', 'Pdf Customer', 'boAt Airdopes 141', '4,425.00', 'Scan to pay']) expect(text, s).toContain(s);
+      for (const s of ['TAX INVOICE', inv!.number, 'Murtaza Electronics', SHOP_GSTIN, 'Pdf Customer', 'boAt Airdopes 141', '4,425.00', 'Scan to pay']) expect(text, s).toContain(s);
     }
   });
 
@@ -316,7 +317,7 @@ describe('questions are free', () => {
     expect(body(await say(S.ownerPhone, 'sales today'))).toMatch(/Invoices: \d+\nBilled total: ₹/);
     expect(body(await say(S.ownerPhone, 'credits'))).toContain(`Credits: ${before}`);
     expect(body(await say(S.ownerPhone, 'low stock'))).toContain('no reorder level set');
-    expect(body(await say(S.ownerPhone, 'help'))).toContain('Nothing is saved until you tap ✅ Confirm');
+    expect(body(await say(S.ownerPhone, 'help'))).toContain('tap *Menu*');
     expect(await balance()).toBe(before);
   });
 

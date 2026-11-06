@@ -6,7 +6,7 @@
 import type { Tx } from '../db/tenantTx.js';
 import type { Reply } from './router.js';
 
-export const MAX_STAFF = 20;
+export const MAX_STAFF = 5;
 const text = (t: string): Reply => ({ kind: 'text', text: t });
 
 /** "9876543210", "+91 98765-43210", "919876543210" → "919876543210" */
@@ -18,28 +18,47 @@ export function normPhone(raw: string): string | null {
 
 const shown = (p: string) => (p.startsWith('91') && p.length === 12 ? `+91 ${p.slice(2, 7)} ${p.slice(7)}` : '+' + p);
 
-export async function addStaff(tx: Tx, tenantId: string, ownerId: string, botPhone: string | undefined, rawPhone: string, name?: string): Promise<Reply[]> {
+/** Checks before the confirm card (and again on Confirm). */
+export async function checkStaffAdd(tx: Tx, tenantId: string, botPhone: string | undefined, rawPhone: string): Promise<{ phone: string } | { error: string }> {
   const phone = normPhone(rawPhone);
-  if (!phone) return [text('Please send a 10-digit mobile number, e.g. *add staff 9876543210 Ravi*.')];
-  if (botPhone && phone === botPhone) return [text("That's this bot's own number.")];
+  if (!phone) return { error: 'Please send a 10-digit mobile number, e.g. *add staff 9876543210 Ravi*.' };
+  if (botPhone && phone === botPhone) return { error: "That's this bot's own number." };
   const others = (await tx.query('select tenant_id, role from app.resolve_sender($1)', [phone])).rows;
-  if (others.some((o) => o.tenant_id === tenantId)) return [text(`${shown(phone)} is already in your shop. Type *staff* to see everyone.`)];
-  if (others.length) return [text(`${shown(phone)} already belongs to another shop on AutoCraft. One number in two shops isn't supported yet.`)];
-  const { rows: [{ n }] } = await tx.query("select count(*)::int as n from memberships where status in ('active', 'invited') and role = 'staff'");
-  if (n >= MAX_STAFF) return [text(`You already have ${n} staff, the most a shop can have for now.`)];
+  if (others.some((o) => o.tenant_id === tenantId)) return { error: `${shown(phone)} is already in your shop. Type *staff* to see everyone.` };
+  if (others.length) return { error: `${shown(phone)} already belongs to another shop on AutoCraft. One number in two shops isn't supported yet.` };
+  const { rows: [{ n, waiting }] } = await tx.query(
+    `select count(*)::int as n, count(*) filter (where m.status = 'invited' and u.phone = $1)::int as waiting
+       from memberships m join users u on u.id = m.user_id where m.status in ('active', 'invited') and m.role = 'staff'`, [phone]);
+  if (waiting) return { error: `${shown(phone)} is already invited and hasn't accepted yet. Ask them to send *Hi* to this number.` };
+  if (n >= MAX_STAFF) return { error: `You already have ${n} of ${MAX_STAFF} staff (counting invites not yet accepted). Remove someone first: *staff* shows everyone.` };
+  return { phone };
+}
 
-  const { rows: [{ id: userId }] } = await tx.query('select app.upsert_user($1, $2) as id', [phone, name?.slice(0, 60) ?? null]);
-  await tx.query(
+export const staffCard = (phone: string, name: string | undefined, cost: number, balance: number) =>
+  `👥 *Invite staff*\n${name ? `*${name}* · ` : ''}${shown(phone)}\n\n` +
+  'They will be able to make bills and quotes, enter purchases and check stock. Sales, credits, expenses and shop settings stay with you.\n\n' +
+  `💳 ${cost} credits on Confirm (you have ${balance}). Refunded if they decline or you remove the invite before they accept.`;
+
+/** On Confirm: invite, and charge. */
+export async function commitStaffAdd(tx: Tx, tenantId: string, ownerId: string, botPhone: string | undefined, phoneIn: string, name: string | undefined, cost: number):
+  Promise<{ membershipId: string; phone: string; reply: string } | { error: string }> {
+  const ok = await checkStaffAdd(tx, tenantId, botPhone, phoneIn);
+  if ('error' in ok) return ok;
+  const { rows: [{ id: userId }] } = await tx.query('select app.upsert_user($1, $2) as id', [ok.phone, name?.slice(0, 60) ?? null]);
+  const { rows: [m] } = await tx.query(
     `insert into memberships (tenant_id, user_id, role, status, invited_by) values ($1, $2, 'staff', 'invited', $3)
-     on conflict (tenant_id, user_id) do update set role = 'staff', status = 'invited', invited_by = excluded.invited_by, removed_at = null`,
-    [tenantId, userId, ownerId]);
+     on conflict (tenant_id, user_id) do update set role = 'staff', status = 'invited', invited_by = excluded.invited_by, removed_at = null
+     returning id`, [tenantId, userId, ownerId]);
   await tx.query(
-    "insert into audit_log (tenant_id, actor_kind, actor_user_id, action, entity_type, entity_id, detail) values ($1, 'user', $2, 'staff.invite', 'user', $3, '{}')",
-    [tenantId, ownerId, userId]);
-  const who = name ? `*${name}* (${shown(phone)})` : shown(phone);
-  return [text(`✅ ${who} is invited as staff.\n\nAsk them to send *Hi* to this WhatsApp number from that phone and tap *Accept*. ` +
-    'They can then make bills and quotes, enter purchases and check stock. Sales reports, expenses and shop settings stay with you.\n\n' +
-    'To undo: *remove staff ' + (name ?? phone.slice(-10)) + '*')];
+    "insert into audit_log (tenant_id, actor_kind, actor_user_id, action, entity_type, entity_id, detail) values ($1, 'user', $2, 'staff.invite', 'membership', $3, '{}')",
+    [tenantId, ownerId, m.id]);
+  void cost;
+  const who = name ? `*${name}* (${shown(ok.phone)})` : shown(ok.phone);
+  return {
+    membershipId: m.id, phone: ok.phone,
+    reply: `✅ ${who} is invited as staff.\n\nAsk them to send *Hi* to this WhatsApp number from that phone and tap *Accept*.\n` +
+      'If they decline, or you change your mind before they accept (*remove staff ' + (name ?? ok.phone.slice(-10)) + '*), the credits come back.'
+  };
 }
 
 export async function listStaff(tx: Tx): Promise<Reply[]> {
@@ -48,7 +67,7 @@ export async function listStaff(tx: Tx): Promise<Reply[]> {
       where m.status in ('active', 'invited') order by (m.role = 'owner') desc, m.created_at`);
   const lines = rows.map((r) => `• ${r.name ?? '—'} · ${shown(r.phone)} · ${r.role === 'owner' ? 'owner' : r.status === 'invited' ? 'staff, waiting to accept' : 'staff'}`);
   const staff = rows.filter((r) => r.role === 'staff').length;
-  return [text(`👥 *People in your shop*\n${lines.join('\n')}` +
+  return [text(`👥 *People in your shop* (staff ${staff} of ${MAX_STAFF})\n${lines.join('\n')}` +
     (staff ? '\n\nTo remove someone: *remove staff Ravi*' : '\n\nTo add someone: *add staff 9876543210 Ravi*'))];
 }
 
@@ -62,11 +81,18 @@ export async function removeStaff(tx: Tx, tenantId: string, ownerId: string, who
   if (!rows.length) return [text(`I can't find staff "${who}". Type *staff* to see everyone.`)];
   if (rows.length > 1) return [text(`More than one staff is called "${who}". Send the number instead, e.g. *remove staff ${rows[0].phone.slice(-10)}*.`)];
   const r = rows[0];
+  const { rows: [st] } = await tx.query('select status from memberships where id = $1', [r.id]);
   await tx.query("update memberships set status = 'removed', removed_at = now() where id = $1", [r.id]);
+  let refund = 0;
+  if (st.status === 'invited') {
+    refund = (await tx.query('select app.credits_refund_checked($1, $2, $3, $4, $5) as n', [tenantId, 'membership', r.id, ownerId, 'Staff invite withdrawn'])).rows[0].n;
+  }
   await tx.query(
     "insert into audit_log (tenant_id, actor_kind, actor_user_id, action, entity_type, entity_id, detail) values ($1, 'user', $2, 'staff.remove', 'membership', $3, '{}')",
     [tenantId, ownerId, r.id]);
-  return [text(`✅ ${r.name ?? shown(r.phone)} is removed. That number can no longer use your shop. Their past entries stay in your records.`)];
+  return [text(refund
+    ? `✅ The invite for ${r.name ?? shown(r.phone)} is withdrawn and ${refund} credits are back in your balance.`
+    : `✅ ${r.name ?? shown(r.phone)} is removed. That number can no longer use your shop. Their past entries stay in your records.`)];
 }
 
 /** A number with no active shop but a waiting invite. Returns null when there is no invite. */

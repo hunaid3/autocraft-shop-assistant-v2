@@ -12,6 +12,7 @@ import {
   type EngineDeps, type InboundPayload, type OutboundPayload
 } from '../engine/process.js';
 import { processInvoicePdf, type DocumentJob } from '../documents/invoiceJob.js';
+import { processSupportNotify, type SupportNotifyPayload } from '../engine/support.js';
 
 export type QueueName = 'inbound' | 'outbound' | 'documents';
 
@@ -40,7 +41,7 @@ function idsOf(payload: unknown): Record<string, string | null> {
   if (typeof payload !== 'object' || payload === null) return {};
   const p = payload as Record<string, unknown>;
   const out: Record<string, string | null> = {};
-  for (const k of ['message_id', 'outbound_id', 'tenant_id', 'invoice_id', 'quotation_id'] as const) if (k in p) out[k] = p[k] == null ? null : String(p[k]);
+  for (const k of ['message_id', 'outbound_id', 'tenant_id', 'invoice_id', 'quotation_id', 'request_id'] as const) if (k in p) out[k] = p[k] == null ? null : String(p[k]);
   return out;
 }
 
@@ -49,7 +50,7 @@ export function startWorker(deps: EngineDeps, opts: WorkerOptions): Worker {
   const reporter = opts.reporter ?? noopReporter;
   const idle = opts.idleMs ?? 250;
   const stats = { inbound: 0, outbound: 0, documents: 0, retried: 0, parked: 0 };
-  const queues: QueueName[] = deps.documents ? ['inbound', 'outbound', 'documents'] : ['inbound', 'outbound'];
+  const queues: QueueName[] = deps.documents || deps.notify ? ['inbound', 'outbound', 'documents'] : ['inbound', 'outbound'];
   let running = true;
 
   async function process(queue: QueueName, payload: unknown): Promise<void> {
@@ -57,7 +58,9 @@ export function startWorker(deps: EngineDeps, opts: WorkerOptions): Worker {
       case 'inbound': await processInbound(deps, payload as InboundPayload); return;
       case 'outbound': await processOutbound(deps, payload as OutboundPayload); return;
       case 'documents': {
-        const p = payload as DocumentJob;
+        const p = payload as DocumentJob | SupportNotifyPayload;
+        if (p.kind === 'support_notify') { await processSupportNotify({ pool: deps.pool, email: deps.notify?.email }, p); return; }
+        if (!deps.documents) throw new Error('documents not configured in this worker');
         if (p.kind !== 'invoice_pdf' && p.kind !== 'quotation_pdf') throw new PermanentError(`unknown document job ${String((p as { kind?: unknown }).kind)}`);
         await processInvoicePdf({ pool: deps.pool, ...deps.documents! }, p);
       }

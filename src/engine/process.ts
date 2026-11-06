@@ -17,6 +17,7 @@ import type { InboundMessage } from '../webhook/parse.js';
 import { WhatsAppSendError, type OutboundMessage, type WhatsAppClient } from '../whatsapp/client.js';
 import { resolveSender } from './senders.js';
 import type { Reply, Router } from './router.js';
+import type { EmailSender } from '../notify/email.js';
 import type { FileStore } from '../documents/fileStore.js';
 import type { PdfRenderer } from '../documents/pdf.js';
 
@@ -26,6 +27,8 @@ export interface EngineDeps {
   router: Router;
   /** PDFs: needed for the 'documents' queue and for sending stored files */
   documents?: { renderer: PdfRenderer; fileStore: FileStore };
+  /** support alerts by email (SES); WhatsApp alerts need nothing extra */
+  notify?: { email?: EmailSender };
 }
 
 export interface InboundPayload { message_id: string }
@@ -93,7 +96,16 @@ export async function processOutbound(deps: EngineDeps, p: OutboundPayload): Pro
       const bytes = await deps.documents.fileStore.get(file.rows[0].path);
       msg = { ...msg, mediaId: await deps.whatsapp.uploadMedia(bytes, file.rows[0].mime, msg.filename) };
     }
-    ({ waMessageId } = await deps.whatsapp.send(msg));
+    try {
+      ({ waMessageId } = await deps.whatsapp.send(msg));
+    } catch (e) {
+      // Outside the 24-hour window Meta refuses free text (#131047): send the approved template instead
+      if (msg.kind === 'text' && msg.fallbackTemplate && e instanceof WhatsAppSendError && /#131047\b|131047/.test(e.message)) {
+        ({ waMessageId } = await deps.whatsapp.send({ kind: 'template', to: msg.to, ...msg.fallbackTemplate }));
+      } else {
+        throw e;
+      }
+    }
   } catch (e) {
     if (e instanceof WhatsAppSendError && !e.retryable) {
       await within((tx) => tx.query("update messages set status = 'failed', error = $2 where id = $1", [p.outbound_id, e.message]));

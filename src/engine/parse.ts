@@ -7,6 +7,7 @@
  */
 import { toPaise } from '../domain/money.js';
 import { findGstin } from '../domain/gstin.js';
+import { topicFromText } from './help.js';
 import type { Intent, LineIntent, ParseContext, Parser, PeriodName, PartyIntent, QtyLine, StockOutReason } from './intents.js';
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -67,14 +68,24 @@ export function staffRules(text: string): Intent | null {
   return null;
 }
 
+/** "support", "talk to autocraft", "support the PDF did not come" (problem kept as typed) */
+export function supportRules(text: string): Intent | null {
+  const raw = text.trim();
+  if (/^(support|talk to (?:autocraft|support|someone|a person|human)|contact(?: us| autocraft)?|complaint|customer care|report a problem)[.!?]?$/i.test(raw)) return { type: 'support' };
+  const m = /^(?:support|complaint|problem|issue|talk to autocraft)\s*[:\-]?\s+([\s\S]{3,})$/i.exec(raw);
+  return m ? { type: 'support', problem: m[1]!.trim() } : null;
+}
+
 export function fixedRules(text: string): Intent | null {
-  const profile = profileRules(text) ?? staffRules(text);
+  const profile = profileRules(text) ?? staffRules(text) ?? supportRules(text);
   if (profile) return profile;
   const t = lower(text).replace(/[.!?]+$/, '');
   if (!t) return { type: 'unknown' };
   if (YES.test(t)) return { type: 'confirm' };
   if (NO.test(t)) return { type: 'cancel' };
-  if (/^(help|menu|\?|commands|how)$/.test(t)) return { type: 'help' };
+  if (/^(help|menu|\?|commands|how|options)$/.test(t)) return { type: 'help' };
+  const ht = /^(?:help|menu)\s+(?:with\s+|on\s+)?([a-z ]{3,20})$/.exec(t);
+  if (ht) { const topic = topicFromText(ht[1]!); if (topic) return { type: 'help_topic', topic }; }
   if (/^(hi|hii+|hello|hey|namaste|namaskar|salaam|salam|assalamu ?alaikum|good (morning|afternoon|evening))$/.test(t)) return { type: 'greeting' };
   if (/^(credits?|balance|wallet|my credits)$/.test(t)) return { type: 'query', report: 'credits' };
   if (/^(stock|full stock|all stock|stock list|inventory)$/.test(t)) return { type: 'query', report: 'stock_all' };

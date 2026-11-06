@@ -50,12 +50,14 @@ export type DraftPayload =
     }
   | { kind: 'stock_out'; reason: StockOutReason; party?: string; note?: string; lines: StockOutLine[] }
   | { kind: 'stock_return'; party?: string; lines: StockOutLine[] }
-  | { kind: 'profile_update'; field: ProfileField; value: string | null; stateCode?: string };
+  | { kind: 'profile_update'; field: ProfileField; value: string | null; stateCode?: string }
+  | { kind: 'staff_add'; phone: string; name?: string }
+  | { kind: 'support_request' };
 
 export interface StockOutLine { itemId: string; name: string; unit: string; qty: string; valuePaise: number }
 
 export const ACTION_FOR: Record<DraftPayload['kind'], string> = {
-  invoice: 'invoice', quotation: 'quotation', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return', profile_update: 'query'
+  invoice: 'invoice', quotation: 'quotation', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return', profile_update: 'query', staff_add: 'staff_add', support_request: 'query'
 };
 
 export const PROFILE_LABEL: Record<ProfileField, string> = { gstin: 'GSTIN', address: 'Address', upi: 'UPI ID', name: 'Shop name', phone: 'Shop phone', email: 'Email' };
@@ -296,6 +298,9 @@ export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Bu
         if (!g.ok) return fail(`That GSTIN doesn't look right: ${g.reason}. Please check it and send again.`);
         value = g.gstin;
         if (value === cur.gstin) return fail(`${value} is already your GSTIN.`);
+        if ((await tx.query('select app.gstin_in_use($1, $2) as used', [value, shop.id])).rows[0].used) {
+          return fail(`${value} is already registered to another shop on AutoCraft. If it is yours, send *support* and we'll sort it out.`);
+        }
         const { rows: [st] } = await tx.query('select code, name from gst_states where code = $1', [g.stateCode]);
         if (!st) return fail(`The GSTIN starts with ${g.stateCode}, which is not a state code I know.`);
         if (st.code !== cur.state_code) { stateCode = st.code; notes.push(`State will change from ${cur.state_name} to *${st.name}* (it decides CGST/SGST or IGST).`); }

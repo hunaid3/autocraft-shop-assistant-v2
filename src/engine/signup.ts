@@ -96,6 +96,9 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
       if (skip) { await save('state', { ...a, gstin: undefined }); return [text(ASK_STATE)]; }
       const g = checkGstin(value);
       if (!g.ok) return [buttons(`That GSTIN doesn't look right: ${g.reason}. Please check and send it again, or tap *No GSTIN*.`, [['SKIP', 'No GSTIN']])];
+      if ((await tx.query('select app.gstin_in_use($1) as used', [g.gstin])).rows[0].used) {
+        return [buttons(`${g.gstin} is already registered to a shop on AutoCraft. If it's yours, send *support* followed by a short note and we'll sort it out. Or tap *No GSTIN* to continue without it.`, [['SKIP', 'No GSTIN']])];
+      }
       const st = await findState(tx, g.stateCode);
       if (!st) return [buttons(`The GSTIN starts with ${g.stateCode}, which is not a state code I know. Please check it, or tap *No GSTIN*.`, [['SKIP', 'No GSTIN']])];
       const next = { ...a, gstin: g.gstin, stateCode: st.code, stateName: st.name };
@@ -125,6 +128,10 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
       if (id(m) === 'RESTART' || said(m, /^(start over|restart|edit|change)$/)) { await save('name', {}); return [text(ASK_NAME)]; }
       if (!(id(m) === 'CREATE' || said(m, /^(create|create shop|yes|ok|confirm)$/))) {
         return [buttons(summary(a), [['CREATE', '✅ Create shop'], ['RESTART', '↩️ Start over']])];
+      }
+      if (a.gstin && (await tx.query('select app.gstin_in_use($1) as used', [a.gstin])).rows[0].used) {
+        await save('gstin', { ...a, gstin: undefined });
+        return [buttons(`${a.gstin} was just registered to another shop. Send *support* with a short note if it's yours, or tap *No GSTIN*.`, [['SKIP', 'No GSTIN']])];
       }
       const { rows: [t] } = await tx.query('select app.provision_tenant($1, $2, $3, $4, $5, null, null, $6) as id',
         [phone, m.profileName?.slice(0, 80) ?? null, a.name, a.stateCode, a.gstin ?? null, a.upi ?? null]);

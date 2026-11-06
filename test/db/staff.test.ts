@@ -37,13 +37,19 @@ async function send(m: unknown, from: string): Promise<OutboundMessage[]> {
 const body = (r: OutboundMessage[]) => r.map((x) => ('text' in x ? x.text : '')).join('\n');
 const say = async (t: string, from: string) => body(await send(text(from, t), from));
 const tap = async (id: string, from: string) => body(await send({ from, id: 'wamid.' + Math.random(), timestamp: '1', type: 'interactive', interactive: { type: 'button_reply', button_reply: { id, title: id } } }, from));
+const balance = async () => (await admin.query('select balance from credit_wallets where tenant_id = $1', [S.tenantId])).rows[0].balance as number;
 const membership = async (p: string) => (await admin.query('select m.id, m.status, m.role from memberships m join users u on u.id = m.user_id where u.phone = $1', [p])).rows;
 
 describe('staff', () => {
-  it('the owner adds staff by number and name; nothing is active until they accept', async () => {
-    const r = await say(`add staff ${ten} Ravi`, S.ownerPhone);
+  it('the owner adds staff by number and name: a card with 25 credits, charged on Confirm; nothing active until they accept', async () => {
+    const card = await say(`add staff ${ten} Ravi`, S.ownerPhone);
+    expect(card).toContain('Invite staff');
+    expect(card).toContain('25 credits on Confirm (you have 100)');
+    expect(await membership(ravi)).toEqual([]);
+    const r = await say('yes', S.ownerPhone);
     expect(r).toContain('*Ravi*');
     expect(r).toContain('send *Hi*');
+    expect(await balance()).toBe(75);
     expect(await membership(ravi)).toEqual([expect.objectContaining({ status: 'invited', role: 'staff' })]);
     expect(await say('staff', S.ownerPhone)).toContain('Ravi · +91 ' + ten.slice(0, 5) + ' ' + ten.slice(5) + ' · staff, waiting to accept');
   });
@@ -70,7 +76,9 @@ describe('staff', () => {
   });
 
   it('a number already in the shop, the bot itself, or a bad number is refused with a reason', async () => {
+    const b = await balance();
     expect(await say(`add staff ${ten} Ravi`, S.ownerPhone)).toContain('already in your shop');
+    expect(await balance()).toBe(b);
     expect(await say('add staff 7013539950 Bot', S.ownerPhone)).toContain("bot's own number");
     expect(await say('add staff 12345 X', S.ownerPhone)).toContain('10-digit');
     expect(await say('add staff', S.ownerPhone)).toContain('add staff 9876543210 Ravi');
@@ -90,11 +98,44 @@ describe('staff', () => {
     expect(rows[0].n).toBe(1);
   });
 
-  it('declining an invite leaves the person free to sign up their own shop', async () => {
+  it('declining an invite refunds the owner and leaves the person free to sign up their own shop', async () => {
+    const before = await balance();
     const sana = randomPhone();
-    await say(`add staff ${sana.slice(-10)} Sana`, S.ownerPhone);
+    await say(`add staff ${sana.slice(-10)} Sana`, S.ownerPhone); await say('yes', S.ownerPhone);
+    expect(await balance()).toBe(before - 25);
     expect(await say('no', sana)).toContain('declined');
     expect((await membership(sana))[0].status).toBe('removed');
+    expect(await balance()).toBe(before);
     expect(await say('hi', sana)).toContain('Welcome to *AutoCraft Shop Assistant*');
+  });
+
+  it('withdrawing an invite before acceptance refunds; after acceptance there is no refund', async () => {
+    const before = await balance();
+    const p = randomPhone();
+    await say(`add staff ${p.slice(-10)} Temp`, S.ownerPhone); await say('yes', S.ownerPhone);
+    expect(await say('remove staff temp', S.ownerPhone)).toContain('25 credits are back');
+    expect(await balance()).toBe(before);
+    // re-adding charges again
+    await say(`add staff ${p.slice(-10)} Temp`, S.ownerPhone); await say('yes', S.ownerPhone);
+    expect(await balance()).toBe(before - 25);
+    const [m] = await membership(p);
+    await tap('ACCEPT:' + m.id, p);
+    expect(await say('remove staff temp', S.ownerPhone)).toContain('is removed');
+    expect(await balance()).toBe(before - 25);
+  });
+
+  it('at most 5 staff, counting invites not yet accepted', async () => {
+    await admin.query('select app.credits_grant($1, 500, $2)', [S.tenantId, 'admin_adjust']);
+    const added: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const p = randomPhone();
+      const card = await say(`add staff ${p.slice(-10)} S${i}`, S.ownerPhone);
+      if (card.includes('Invite staff')) { await say('yes', S.ownerPhone); added.push(p); } else {
+        expect(card).toContain('of 5 staff');
+      }
+    }
+    const { rows: [{ n }] } = await admin.query("select count(*)::int n from memberships where tenant_id = $1 and role = 'staff' and status in ('active','invited')", [S.tenantId]);
+    expect(n).toBe(5);
+    expect(await say('staff', S.ownerPhone)).toContain('staff 5 of 5');
   });
 });

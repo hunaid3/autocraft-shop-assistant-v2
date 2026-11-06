@@ -12,7 +12,7 @@ import { chromiumRenderer } from '../../src/documents/pdf.js';
 import { fyOf, istDate } from '../../src/domain/format.js';
 import { addDays } from '../../src/engine/drafts.js';
 import { APP_SECRET, PHONE_NUMBER_ID, VERIFY_TOKEN, payload, signed, text } from '../fixtures/meta.js';
-import { admin, engine, newItem, newShop } from './helpers.js';
+import { admin, engine, newItem, newShop, randomGstin } from './helpers.js';
 import { execFileSync } from 'node:child_process';
 
 const wa = new RecordingClient();
@@ -27,7 +27,7 @@ const dmy = (d: string) => d.split('-').reverse().join('-');
 
 beforeAll(async () => {
   S = await newShop('Quote Shop', '36');
-  await admin.query("update tenants set gstin = '36AABCU9603R1ZM' where id = $1", [S.tenantId]);
+  await admin.query('update tenants set gstin = $2 where id = $1', [S.tenantId, randomGstin('36')]);
   airdopes = await newItem(S.tenantId, 'boAt Airdopes 141', { sale_price_paise: 125000, purchase_price_paise: 85000 });
   await withTenant(engine, S.tenantId, (tx) => tx.query("insert into stock_ledger (tenant_id, item_id, qty_in, movement_type) values ($1, $2, 20, 'opening')", [S.tenantId, airdopes]));
   app = buildServer({ pool: engine, appSecret: APP_SECRET, verifyToken: VERIFY_TOKEN, phoneNumberId: PHONE_NUMBER_ID, logLevel: 'silent' });
