@@ -20,10 +20,12 @@ export function candidateDatabases(env: NodeJS.ProcessEnv): DbSettings[] {
   const user = env.DB_USER ?? 'app_engine.epskxazkpxatbtumnhio';
   const hosts = (env.DB_HOSTS ?? 'aws-1-ap-south-1.pooler.supabase.com,aws-0-ap-south-1.pooler.supabase.com').split(',').map((h) => h.trim()).filter(Boolean);
   // Encrypted; the server certificate is not pinned yet (TODO: ship Supabase's CA and verify).
-  return hosts.map((h) => ({
-    connectionString: `postgres://${encodeURIComponent(user)}:${encodeURIComponent(env.DB_PASSWORD!)}@${h}:${env.DB_PORT ?? '5432'}/${env.DB_NAME ?? 'postgres'}`,
-    ssl: { rejectUnauthorized: false }
-  }));
+  return hosts.map((h) => {
+    const u = new URL(`postgres://${h}:${env.DB_PORT ?? '5432'}/${env.DB_NAME ?? 'postgres'}`);
+    u.username = encodeURIComponent(user);
+    u.password = encodeURIComponent(env.DB_PASSWORD!);
+    return { connectionString: u.toString(), ssl: { rejectUnauthorized: false } };
+  });
 }
 
 /** Finds the database that accepts us and fills missing settings from the Vault. */
