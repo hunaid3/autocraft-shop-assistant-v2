@@ -14,6 +14,8 @@ import { OpenAiBillReader } from './engine/billReader.js';
 import { prepareRuntimeEnv } from './runtimeEnv.js';
 import { checkMeta, ensureSubscribed } from './whatsapp/metaCheck.js';
 import { SesEmailSender } from './notify/email.js';
+import { RazorpayClient } from './payments/razorpay.js';
+import { withoutTenant } from './db/tenantTx.js';
 
 // In AWS only the database password is given; the rest comes from Supabase Vault.
 const db = await prepareRuntimeEnv(process.env, (m) => console.log(JSON.stringify({ level: 30, msg: m })));
@@ -37,7 +39,8 @@ const documents = config.SUPABASE_SECRET_KEY
 const server = buildServer({
   pool, appSecret: config.META_APP_SECRET, verifyToken: config.META_VERIFY_TOKEN,
   phoneNumberId: config.META_PHONE_NUMBER_ID, botPhone: config.BOT_PHONE, logLevel: config.LOG_LEVEL, reporter,
-  dashboard: { fileStore: documents?.fileStore }
+  dashboard: { fileStore: documents?.fileStore },
+  razorpayWebhookSecret: config.RAZORPAY_WEBHOOK_SECRET
 });
 server.log.info({ reader: config.OPENAI_API_KEY ? `openai:${config.OPENAI_MODEL}` : 'simple' }, 'message reader');
 if (!documents) server.log.warn('SUPABASE_SECRET_KEY not set: invoice PDFs will wait in the queue');
@@ -51,11 +54,23 @@ const media = config.OPENAI_API_KEY && documents
   : undefined;
 server.log.info({ billReading: Boolean(media) }, 'bill photo reading');
 
+const payments = config.RAZORPAY_KEY_ID && config.RAZORPAY_KEY_SECRET
+  ? new RazorpayClient({ keyId: config.RAZORPAY_KEY_ID, keySecret: config.RAZORPAY_KEY_SECRET }) : undefined;
+server.log.info({ recharge: payments ? config.RAZORPAY_KEY_ID!.slice(0, 9) : 'off', webhook: Boolean(config.RAZORPAY_WEBHOOK_SECRET) }, 'payments');
+
+// Once a day: expire credit lots past 12 months (the database makes sure only one run per day happens)
+const daily = setInterval(() => {
+  withoutTenant(pool, (tx) => tx.query('select app.run_daily_credit_expiry() as n'))
+    .then((r) => { if (r.rows[0].n >= 0) server.log.info({ expired: r.rows[0].n }, 'daily credit expiry'); })
+    .catch((e) => reporter.capture(e, { tags: { stage: 'daily' } }));
+}, 60 * 60 * 1000);
+daily.unref();
+
 const notify = { email: config.SES_FROM ? new SesEmailSender({ from: config.SES_FROM }) : undefined };
 server.log.info({ supportEmail: Boolean(notify.email) }, 'support alerts');
 
 const worker = startWorker(
-  { pool, router: shopRouter(parser, { media, botPhone: config.BOT_PHONE, dashboardUrl: config.DASHBOARD_URL }), documents, whatsapp, notify },
+  { pool, router: shopRouter(parser, { media, botPhone: config.BOT_PHONE, dashboardUrl: config.DASHBOARD_URL, payments }), documents, whatsapp, notify },
   { workerId: config.WORKER_ID, concurrency: config.WORKER_CONCURRENCY, log: server.log, reporter }
 );
 

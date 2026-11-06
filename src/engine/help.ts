@@ -78,7 +78,8 @@ const TOPICS: Record<HelpTopic, Topic> = {
       '• Bill with PDF: 3\n• Bill read from a photo/PDF: 3\n• Quote: 1\n• Typed purchase / expense / stock entry: 1\n' +
       '• Stock out without a bill: 1 (returns free)\n• Staff: 25 each\n• Item list upload: 10 (under 10 items) or 25\n' +
       '• Questions, reports, help, shop details: free\n\n' +
-      'Credits last 12 months. Type *credits* for your balance.'
+      'Credits last 12 months; older credits are used first. Type *credits* for your balance, *recharge* to buy more.',
+    buttons: [['RECHARGE', '💳 Recharge']]
   },
   support: {
     title: '💬 Talk to AutoCraft', description: 'Report a problem or ask us anything',

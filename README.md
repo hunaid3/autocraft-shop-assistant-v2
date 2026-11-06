@@ -115,7 +115,14 @@ Phase 2, slice 1 (core loop):
       `autocraft-shop-khata`; `_redirects` proxies `/api/*` to AWS so the browser uses one origin; strict CSP.
 - [x] **Admin console** (same app, *AutoCraft* tab, numbers in `platform_settings.admin_phones`): all shops,
       open support requests (WhatsApp the customer, mark done), failed jobs, goodwill credits (`admin_adjust`).
-- [ ] Next: recharges (Phase 3), bulk item upload, OTP login for later visits (needs an authentication template)
+- [x] **Recharges** (Phase 3): owner sends *recharge* (or taps 💳 Recharge) → packs as buttons (₹299/300,
+      ₹999/1,100, ₹2,499/3,000) → a Razorpay payment link (24 h, created before the transaction; a failure is not
+      retried so no duplicate links) → `POST /razorpay/webhook` (HMAC over the raw body with Vault
+      `razorpay_webhook_secret`; amount and currency checked) → `app.apply_payment` adds credits once → receipt on
+      WhatsApp. Expired/cancelled links are closed. Max 5 open links a day. Keys from Vault: `razorpay_key_id`,
+      `razorpay_key_secret`. Owners get an in-chat reminder (with a Recharge button) when credits expire within 7
+      days, at most every 3 days; `app.run_daily_credit_expiry()` runs hourly and expires lots once a day.
+- [ ] Next: bulk item upload, OTP login for later dashboard visits (needs an authentication template)
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

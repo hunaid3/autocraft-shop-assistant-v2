@@ -27,6 +27,10 @@ const schema = z.object({
   CHROME_PATH: z.string().optional(),   // headless Chromium for PDFs; the container sets it
   SENTRY_DSN: z.string().url().optional(),
   // Support alerts by email through Amazon SES (Mumbai). Unset → WhatsApp alert only.
+  // Recharges (Razorpay payment links). All three come from Supabase Vault; unset → recharge says it's coming.
+  RAZORPAY_KEY_ID: z.string().regex(/^rzp_(test|live)_/).optional(),
+  RAZORPAY_KEY_SECRET: z.string().min(10).optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().min(16).optional(),
   DASHBOARD_URL: z.string().url().default('https://app.autocraft-solutions.com'),
   SES_FROM: z.string().min(3).optional(),   // e.g. "AutoCraft Shop Assistant <support@autocraft-solutions.com>"
   APP_ENV: z.enum(['production', 'staging', 'development']).default('development'),

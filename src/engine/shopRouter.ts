@@ -24,6 +24,8 @@ import { checkStaffAdd, inviteRoute, listStaff, removeStaff, staffCard } from '.
 import { helpMenu, helpTopic, type HelpTopic } from './help.js';
 import { ASK_PROBLEM, captureSupport } from './support.js';
 import { createLoginLink, LINK_MINUTES } from '../dashboard/api.js';
+import { expiryNudge, packMenu, prepareLink, saveLink, type PreparedLink } from '../payments/recharge.js';
+import type { PaymentGateway } from '../payments/razorpay.js';
 import { supportRules } from './parse.js';
 import { creditBalance, creditCost } from './shop.js';
 import { phase1Router, type PrepareContext, type Reply, type RouteContext, type Router } from './router.js';
@@ -31,7 +33,7 @@ import { loadShop, loadCatalog } from './shop.js';
 import type { Intent, ParseContext, Parser } from './intents.js';
 
 // Staff may bill, quote, enter purchases (typed or photo), move stock and ask stock questions.
-const OWNER_ONLY = new Set<Intent['type']>(['expense', 'stock_count', 'profile_update', 'staff_add', 'staff_list', 'staff_remove', 'dashboard']);
+const OWNER_ONLY = new Set<Intent['type']>(['expense', 'stock_count', 'profile_update', 'staff_add', 'staff_list', 'staff_remove', 'dashboard', 'recharge']);
 const OWNER_ONLY_TEXT = 'Only the owner can do that. You can make bills and check stock.';
 const BILL_EXAMPLE = '*bought 50 airdopes @ 850 from Sharma Traders bill 4471*';
 
@@ -48,6 +50,7 @@ type Prepared =
   | { logo: { path: string; mime: string; size: number } }
   | { bill: BillReading; file: BillFile }
   | { reply: string }
+  | { payLink: PreparedLink }
   | { support: { text: string; file?: { path: string; mime: string; size: number } } };
 
 const text = (t: string): Reply[] => [{ kind: 'text', text: t }];
@@ -59,6 +62,7 @@ function buttonIntent(id: string | undefined): Intent {
     case 'EDIT': return { type: 'edit' };
     case 'MENU': return { type: 'help' };
     case 'SUPPORT': return { type: 'support' };
+    case 'RECHARGE': return { type: 'recharge' };
     default: {
       const t = /^HELP:([A-Z]+)$/.exec((id ?? '').toUpperCase());
       return t ? { type: 'help_topic', topic: t[1]!.toLowerCase() as HelpTopic } : { type: 'unknown' };
@@ -68,7 +72,7 @@ function buttonIntent(id: string | undefined): Intent {
 
 const IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: MediaDeps; botPhone?: string; dashboardUrl?: string } = {}): Router {
+export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: MediaDeps; botPhone?: string; dashboardUrl?: string; payments?: PaymentGateway } = {}): Router {
   const lowBalance = opts.lowBalance ?? 20;
   const botPhone = opts.botPhone;
   const media = opts.media;
@@ -134,7 +138,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     return { logo: { path, mime: file.mime, size: file.bytes.length } };
   }
 
-  const route = async (ctx: RouteContext): Promise<Reply[]> => {
+  const routeInner = async (ctx: RouteContext): Promise<Reply[]> => {
     const { sender, message, tx } = ctx;
     if (sender.kind === 'unknown' && message.kind === 'text') {
       // Someone not registered (e.g. stuck at sign-up) can still reach AutoCraft
@@ -156,6 +160,10 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     const prepared = ctx.prepared as Prepared | undefined;
     if (isMedia && !prepared) return text("I couldn't read that file. Please send it again.");
     if (prepared && 'reply' in prepared) return text(prepared.reply);
+    if (prepared && 'payLink' in prepared) {
+      if (sender.role !== 'owner') return text(OWNER_ONLY_TEXT);
+      return saveLink(tx, shop.id, sender.userId, prepared.payLink);
+    }
     if (prepared && 'support' in prepared) {
       let fileId: string | null = null;
       if (prepared.support.file) {
@@ -228,6 +236,8 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       }
       case 'staff_list':
         return listStaff(tx);
+      case 'recharge':
+        return packMenu(tx);
       case 'dashboard': {
         const link = await createLoginLink(tx, shop.id, sender.userId, opts.dashboardUrl ?? 'https://app.autocraft-solutions.com');
         return text(`📊 Your dashboard: ${link}\n\nThe link works once, within ${LINK_MINUTES} minutes. That browser then stays signed in for 30 days. Don't forward it: it opens your shop's data.`);
@@ -259,7 +269,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
           await tx.query(
             "insert into audit_log (tenant_id, actor_kind, actor_user_id, action, entity_type, entity_id, detail) values ($1, 'user', $2, 'draft.confirm', $3, $4, $5)",
             [shop.id, sender.userId, r.refType, r.refId, JSON.stringify({ draft_id: d.id, credits: d.cost })]);
-          const low = r.balance < lowBalance ? `\n\n⚠️ Only ${r.balance} credits left. Recharge from WhatsApp is coming soon; ask AutoCraft to top up.` : '';
+          const low = r.balance < lowBalance ? `\n\n⚠️ Only ${r.balance} credits left. Send *recharge* to top up.` : '';
           return text(r.reply + low);
         } catch (e) {
           const code = (e as { code?: string }).code;
@@ -302,9 +312,31 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     }
   };
 
+  /** Owner's replies also carry a reminder when credits are about to expire (in-chat, no template needed). */
+  const route = async (ctx: RouteContext): Promise<Reply[]> => {
+    const replies = await routeInner(ctx);
+    if (ctx.sender.kind === 'member' && ctx.sender.role === 'owner' && replies.length) {
+      const nudge = await expiryNudge(ctx.tx, ctx.sender.tenantId);
+      if (nudge) replies.push(nudge);
+    }
+    return replies;
+  };
+
   const prepare = async (c: PrepareContext): Promise<Prepared | undefined> => {
     if (c.sender.kind !== 'member') return undefined;
     const m = c.message;
+    // A pack tapped: create the Razorpay link now (an outside call, so before the transaction)
+    const pack = m.kind === 'button' ? /^PACK:([a-z0-9_]+)$/i.exec(m.buttonId ?? '') : null;
+    if (pack) {
+      if (c.sender.role !== 'owner') return { reply: OWNER_ONLY_TEXT };
+      try {
+        const r = await prepareLink(c.pool, opts.payments, c.sender.tenantId, c.sender.phone, pack[1]!.toLowerCase());
+        return 'error' in r && !('paymentId' in r) ? { reply: r.error } : { payLink: r as PreparedLink };
+      } catch {
+        // Not retried: a retry could open a second link. The owner can tap again.
+        return { reply: "Couldn't open a payment link just now. Please tap the pack again in a minute." };
+      }
+    }
     // Waiting for a "Talk to AutoCraft" message? Then this message is the problem (a photo is attached, not read).
     if ((m.kind === 'text' || m.kind === 'image') && !/^\s*(cancel|stop|no)\s*$/i.test(m.text ?? '')) {
       const waiting = await withTenant(c.pool, c.sender.tenantId, (tx) => tx.query(

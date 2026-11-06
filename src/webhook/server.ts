@@ -13,6 +13,8 @@ import { parseWebhook } from './parse.js';
 import { ingest } from './ingest.js';
 import { noopReporter, type ErrorReporter } from '../observability.js';
 import { registerDashboard } from '../dashboard/api.js';
+import { handleRazorpayEvent } from '../payments/recharge.js';
+import { isValidRazorpaySignature } from '../payments/razorpay.js';
 import type { FileStore } from '../documents/fileStore.js';
 
 export interface ServerDeps {
@@ -25,6 +27,8 @@ export interface ServerDeps {
   reporter?: ErrorReporter;
   /** the shop dashboard API under /api (optional: tests of the webhook alone leave it out) */
   dashboard?: { fileStore?: FileStore };
+  /** Razorpay webhook (recharges); without a secret the route answers 503 */
+  razorpayWebhookSecret?: string;
 }
 
 declare module 'fastify' {
@@ -80,6 +84,17 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     const result = await ingest(deps.pool, messages, statuses, { phoneNumberId: deps.phoneNumberId, botPhone: deps.botPhone });
     req.log.info({ ...result }, 'webhook ingested');
     return { ok: true };
+  });
+
+  // Razorpay → payment link paid / expired. Signature over the raw body; a failure answers 500 so Razorpay retries.
+  app.post('/razorpay/webhook', async (req, reply) => {
+    if (!deps.razorpayWebhookSecret) return reply.code(503).send({ ok: false });
+    if (!req.rawBody || !isValidRazorpaySignature(req.rawBody, req.headers['x-razorpay-signature'] as string | undefined, deps.razorpayWebhookSecret)) {
+      return reply.code(401).send({ ok: false });
+    }
+    const outcome = await handleRazorpayEvent(deps.pool, (req.body ?? {}) as Parameters<typeof handleRazorpayEvent>[1]);
+    req.log.info({ outcome, event: (req.body as { event?: string } | null)?.event }, 'razorpay webhook');
+    return { ok: true, outcome };
   });
 
   if (deps.dashboard) registerDashboard(app, { pool: deps.pool, fileStore: deps.dashboard.fileStore });

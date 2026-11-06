@@ -62,6 +62,7 @@ export type Intent =
   | { type: 'staff_add'; phone: string; name?: string }
   | { type: 'staff_list' }
   | { type: 'dashboard' }
+  | { type: 'recharge' }
   | { type: 'help_topic'; topic: import('./help.js').HelpTopic }
   | { type: 'support'; problem?: string }
   | { type: 'staff_remove'; who: string }

@@ -8,7 +8,8 @@ import pg from 'pg';
 const FROM_VAULT: Record<string, string> = {
   meta_access_token: 'META_ACCESS_TOKEN', meta_app_secret: 'META_APP_SECRET', meta_verify_token: 'META_VERIFY_TOKEN',
   meta_phone_number_id: 'META_PHONE_NUMBER_ID', openai_api_key: 'OPENAI_API_KEY', supabase_secret_key: 'SUPABASE_SECRET_KEY',
-  sentry_dsn: 'SENTRY_DSN'
+  sentry_dsn: 'SENTRY_DSN',
+  razorpay_key_id: 'RAZORPAY_KEY_ID', razorpay_key_secret: 'RAZORPAY_KEY_SECRET', razorpay_webhook_secret: 'RAZORPAY_WEBHOOK_SECRET'
 };
 
 export interface DbSettings { connectionString: string; ssl?: pg.ConnectionConfig['ssl'] }
