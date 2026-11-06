@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shop Khata · AutoCraft</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#9E1B32">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600&family=Martel:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="binding" aria-hidden="true"></div>
+<header class="top">
+  <div class="shop">
+    <h1 id="shopName">Your shop</h1>
+    <p id="shopMeta" class="muted"></p>
+  </div>
+  <button id="logout" class="link" hidden>Sign out</button>
+</header>
+
+<main id="app" class="page">
+  <section id="signin" class="signin" hidden>
+    <h2>Open your shop's khata</h2>
+    <p>Send <b>dashboard</b> to the AutoCraft WhatsApp number. You'll get a link that opens this page, signed in to your shop.</p>
+    <a class="btn" href="https://wa.me/917013539950?text=dashboard">Send “dashboard” on WhatsApp</a>
+    <p id="signinError" class="error" role="alert"></p>
+  </section>
+
+  <section id="ledger" hidden>
+    <nav class="periods" aria-label="Period">
+      <button data-period="today">Today</button>
+      <button data-period="week">7 days</button>
+      <button data-period="month" aria-pressed="true">This month</button>
+      <button data-period="last_month">Last month</button>
+      <button data-period="fy">This FY</button>
+    </nav>
+
+    <div class="grid">
+      <div class="col">
+        <section class="total" aria-live="polite">
+          <p class="caption" id="totalCaption">Sales this month</p>
+          <p class="amount" id="salesTotal">—</p>
+          <p class="muted" id="salesSub"></p>
+        </section>
+
+        <section class="sheet">
+          <h2>Profit and loss</h2>
+          <dl class="rows" id="pl"></dl>
+          <p class="note" id="plNote"></p>
+        </section>
+
+        <section class="sheet">
+          <h2>Day by day</h2>
+          <div id="chart" class="chart" role="img" aria-label="Sales per day"></div>
+        </section>
+      </div>
+
+      <div class="col">
+        <section class="sheet">
+          <h2>Right now</h2>
+          <dl class="rows" id="now"></dl>
+        </section>
+        <section class="sheet">
+          <h2>Best sellers</h2>
+          <ol class="rows plain" id="top"></ol>
+        </section>
+      </div>
+    </div>
+
+    <section class="sheet book">
+      <div class="tabs" role="tablist" aria-label="Records">
+        <button role="tab" data-list="invoices" aria-selected="true">Bills</button>
+        <button role="tab" data-list="quotations">Quotes</button>
+        <button role="tab" data-list="purchases">Purchases</button>
+        <button role="tab" data-list="expenses">Expenses</button>
+        <button role="tab" data-list="stock">Stock</button>
+        <button role="tab" data-list="unbilled">Out without bill</button>
+        <button role="tab" data-list="credits">Credits</button>
+        <button role="tab" data-list="admin" id="adminTab" hidden>AutoCraft</button>
+      </div>
+      <div class="listbar">
+        <p id="listCaption" class="muted"></p>
+        <button id="export" class="btn small">Download Excel (CSV)</button>
+      </div>
+      <div id="list" role="tabpanel"></div>
+    </section>
+  </section>
+</main>
+<footer class="foot muted">Your data stays in India (Mumbai). Questions? Send <b>support</b> on WhatsApp.</footer>
+<script src="/app.js" defer></script>
+</body>
+</html>

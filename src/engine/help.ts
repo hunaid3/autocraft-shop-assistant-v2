@@ -60,7 +60,8 @@ const TOPICS: Record<HelpTopic, Topic> = {
       '*Address:* update address 12-3, Abids Road, Hyderabad 500001\n' +
       '*UPI:* update upi myshop@okhdfcbank (adds a pay QR on bills)\n' +
       '*Phone / email / name:* update phone 9876543210 · update email … · update shop name …\n' +
-      '*Logo:* send a photo with the caption *logo*\n\n' +
+      '*Logo:* send a photo with the caption *logo*\n' +
+      '*Dashboard:* send *dashboard* for a link to sales, stock, bills and exports on the web\n\n' +
       'Changes show a card first. Free.'
   },
   staff: {

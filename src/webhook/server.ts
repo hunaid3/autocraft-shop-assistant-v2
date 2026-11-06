@@ -12,6 +12,8 @@ import { isValidSignature } from './signature.js';
 import { parseWebhook } from './parse.js';
 import { ingest } from './ingest.js';
 import { noopReporter, type ErrorReporter } from '../observability.js';
+import { registerDashboard } from '../dashboard/api.js';
+import type { FileStore } from '../documents/fileStore.js';
 
 export interface ServerDeps {
   pool: pg.Pool;
@@ -21,6 +23,8 @@ export interface ServerDeps {
   botPhone?: string;
   logLevel?: string;
   reporter?: ErrorReporter;
+  /** the shop dashboard API under /api (optional: tests of the webhook alone leave it out) */
+  dashboard?: { fileStore?: FileStore };
 }
 
 declare module 'fastify' {
@@ -29,7 +33,7 @@ declare module 'fastify' {
 
 export function buildServer(deps: ServerDeps): FastifyInstance {
   const app = Fastify({
-    logger: { level: deps.logLevel ?? 'info', redact: ['req.headers["x-hub-signature-256"]'] },
+    logger: { level: deps.logLevel ?? 'info', redact: ['req.headers["x-hub-signature-256"]', 'req.headers.authorization'] },
     bodyLimit: 2 * 1024 * 1024
   });
 
@@ -78,5 +82,6 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     return { ok: true };
   });
 
+  if (deps.dashboard) registerDashboard(app, { pool: deps.pool, fileStore: deps.dashboard.fileStore });
   return app;
 }

@@ -106,7 +106,16 @@ Phase 2, slice 1 (core loop):
       from that address). Max 5 a day per number.
 - [x] **Item-upload prices set:** 10 credits for a file under 10 items (`bulk_import_small`), 25 otherwise
       (`bulk_import`), per file. The upload itself is next.
-- [ ] Next: bulk item upload, dashboard (Phase 5), recharges (Phase 3)
+- [x] **Dashboard** (Phase 5): the owner sends *dashboard* → one-time link (15 min) → `/api/session` gives a
+      30-day session (hash only, `dashboard_sessions`). Read-only API in the engine under `/api` (routed by API
+      Gateway `ANY /api/{proxy+}`), every query through `withTenant` so RLS applies: summary (sales, GST, profit
+      estimate at saved cost, stock value, low stock, open quotes, unbilled, credits and expiry, daily chart, best
+      sellers), lists for bills, quotes, purchases, expenses, stock, unbilled, credits; PDFs; CSV export (Excel
+      opens it; formula-looking cells neutralised). Web app in `web/` (static, no build) on Netlify site
+      `autocraft-shop-khata`; `_redirects` proxies `/api/*` to AWS so the browser uses one origin; strict CSP.
+- [x] **Admin console** (same app, *AutoCraft* tab, numbers in `platform_settings.admin_phones`): all shops,
+      open support requests (WhatsApp the customer, mark done), failed jobs, goodwill credits (`admin_adjust`).
+- [ ] Next: recharges (Phase 3), bulk item upload, OTP login for later visits (needs an authentication template)
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

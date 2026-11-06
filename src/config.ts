@@ -27,6 +27,7 @@ const schema = z.object({
   CHROME_PATH: z.string().optional(),   // headless Chromium for PDFs; the container sets it
   SENTRY_DSN: z.string().url().optional(),
   // Support alerts by email through Amazon SES (Mumbai). Unset → WhatsApp alert only.
+  DASHBOARD_URL: z.string().url().default('https://app.autocraft-solutions.com'),
   SES_FROM: z.string().min(3).optional(),   // e.g. "AutoCraft Shop Assistant <support@autocraft-solutions.com>"
   APP_ENV: z.enum(['production', 'staging', 'development']).default('development'),
   RELEASE: z.string().optional(),   // git sha, set by the deploy

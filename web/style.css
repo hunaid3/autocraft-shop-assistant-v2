@@ -1,0 +1,106 @@
+:root {
+  --paper: #EEF2EC; --rule: #C9D6E8; --red: #9E1B32; --ink: #1E3A8A; --text: #1C2128; --muted: #5B6470;
+  --good: #1F6B3A; --bad: #9E1B32; --line: 28px;
+  --serif: 'Martel', Georgia, serif; --sans: 'Hind', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; color: var(--text); font: 400 16px/var(--line) var(--sans);
+  background-color: var(--paper);
+  /* ruled ledger paper with the red margin line */
+  background-image:
+    linear-gradient(to right, transparent 0 calc(16px + 22px), rgba(158,27,50,.45) calc(16px + 22px) calc(16px + 23px), transparent calc(16px + 23px)),
+    repeating-linear-gradient(to bottom, transparent 0 calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px) var(--line));
+  background-attachment: local;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.binding { height: 10px; background: var(--red); box-shadow: inset 0 -3px 0 rgba(0,0,0,.18); }
+.top, .page, .foot { max-width: 1080px; margin: 0 auto; padding: 0 16px 0 calc(16px + 36px); }
+.top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; padding-top: 22px; padding-bottom: 6px; }
+h1 { font: 800 1.6rem/1.2 var(--serif); margin: 0; color: var(--red); letter-spacing: -.01em; }
+h2 { font: 700 1.05rem/var(--line) var(--serif); margin: 0 0 4px; color: var(--text); }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.error { color: var(--bad); margin-top: 12px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; border-radius: 2px; }
+.link { background: none; border: 0; color: var(--ink); text-decoration: underline; padding: 4px; }
+.btn { display: inline-block; background: var(--red); color: #fff; border: 0; padding: 10px 16px; border-radius: 6px; text-decoration: none; font-weight: 600; }
+.btn.small { padding: 4px 10px; font-size: .9rem; background: var(--ink); }
+.btn:hover { filter: brightness(1.1); }
+
+.signin { padding: 40px 0; max-width: 34rem; }
+.signin h2 { font-size: 1.5rem; line-height: 1.3; margin-bottom: 12px; }
+.signin p { margin-bottom: 18px; }
+
+.periods { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 8px; }
+.periods button { background: transparent; border: 1px solid var(--rule); border-radius: 999px; padding: 2px 12px; color: var(--muted); }
+.periods button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+.grid { display: grid; gap: 0 40px; grid-template-columns: 1fr; }
+@media (min-width: 860px) { .grid { grid-template-columns: 3fr 2fr; } }
+.sheet { margin: var(--line) 0 0; }
+
+/* the one bold thing: the period's total, closed with the accountant's double rule */
+.total { margin-top: 18px; }
+.caption { color: var(--muted); }
+.amount {
+  font: 800 clamp(2.4rem, 9vw, 3.6rem)/1.15 var(--serif); color: var(--ink); display: inline-block;
+  padding-bottom: 6px; border-bottom: 3px double var(--ink); margin: 2px 0 8px;
+}
+
+.rows { margin: 0; padding: 0; list-style: none; }
+.rows > div, .rows > li { display: flex; align-items: baseline; gap: 8px; min-height: var(--line); }
+.rows dt, .rows .k { flex: 0 1 auto; }
+.rows dd, .rows .v { margin: 0 0 0 auto; color: var(--ink); font-weight: 600; text-align: right; white-space: nowrap; }
+.rows > div::after, .rows > li::after { content: none; }
+.leader { flex: 1 1 auto; border-bottom: 1px dotted var(--muted); transform: translateY(-6px); min-width: 16px; opacity: .6; }
+.rows .sum { font-family: var(--serif); font-weight: 700; }
+.rows .sum dd { font-size: 1.05rem; }
+.rows .sum dd { border-top: 1px solid var(--ink); border-bottom: 3px double var(--ink); }
+.neg { color: var(--bad) !important; }
+.pos { color: var(--good) !important; }
+.note { color: var(--muted); font-size: .9rem; }
+
+.chart svg { width: 100%; height: 140px; display: block; }
+.chart rect { fill: var(--ink); }
+.chart rect.zero { fill: var(--rule); }
+.chart text { font: 12px var(--sans); fill: var(--muted); }
+
+.book { margin-top: calc(var(--line) * 1.5); }
+.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; border-bottom: 2px solid var(--red); }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { background: transparent; border: 0; padding: 4px 12px; white-space: nowrap; color: var(--muted); border-radius: 6px 6px 0 0; }
+.tabs button[aria-selected="true"] { background: var(--red); color: #fff; }
+.listbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 600; color: var(--muted); font-size: .9rem; border-bottom: 1px solid var(--muted); }
+td, th { padding: 0 8px 0 0; height: var(--line); vertical-align: baseline; }
+td.num, th.num { text-align: right; padding-right: 16px; padding-left: 8px; color: var(--ink); white-space: nowrap; }
+tbody tr:hover { background: rgba(30,58,138,.05); }
+td .tag { font-size: .8rem; color: var(--muted); }
+.scroll { overflow-x: auto; }
+.empty { padding: var(--line) 0; color: var(--muted); }
+.actions button { margin-left: 6px; }
+
+.foot { padding-top: 40px; padding-bottom: 32px; font-size: .9rem; }
+
+/* phones: each record becomes one ledger entry of two lines */
+@media (max-width: 640px) {
+  .top, .page, .foot { padding-left: calc(16px + 30px); }
+  thead { display: none; }
+  table, tbody { display: block; }
+  tr { display: flex; flex-wrap: wrap; column-gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--rule); }
+  td { display: inline; height: auto; padding: 0; }
+  td:first-child { flex: 1 1 100%; font-weight: 600; }
+  td.lo { display: none; }
+  td.num { padding: 0; }
+  td.num[data-label]::before { content: attr(data-label) ' '; color: var(--muted); font-size: .85rem; }
+  td.actions { margin-left: auto; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .amount { animation: ink .6s ease-out both; }
+  @keyframes ink { from { opacity: 0; letter-spacing: .04em; } to { opacity: 1; letter-spacing: 0; } }
+}

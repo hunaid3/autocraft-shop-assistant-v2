@@ -23,6 +23,7 @@ import { signupRoute } from './signup.js';
 import { checkStaffAdd, inviteRoute, listStaff, removeStaff, staffCard } from './staff.js';
 import { helpMenu, helpTopic, type HelpTopic } from './help.js';
 import { ASK_PROBLEM, captureSupport } from './support.js';
+import { createLoginLink, LINK_MINUTES } from '../dashboard/api.js';
 import { supportRules } from './parse.js';
 import { creditBalance, creditCost } from './shop.js';
 import { phase1Router, type PrepareContext, type Reply, type RouteContext, type Router } from './router.js';
@@ -30,7 +31,7 @@ import { loadShop, loadCatalog } from './shop.js';
 import type { Intent, ParseContext, Parser } from './intents.js';
 
 // Staff may bill, quote, enter purchases (typed or photo), move stock and ask stock questions.
-const OWNER_ONLY = new Set<Intent['type']>(['expense', 'stock_count', 'profile_update', 'staff_add', 'staff_list', 'staff_remove']);
+const OWNER_ONLY = new Set<Intent['type']>(['expense', 'stock_count', 'profile_update', 'staff_add', 'staff_list', 'staff_remove', 'dashboard']);
 const OWNER_ONLY_TEXT = 'Only the owner can do that. You can make bills and check stock.';
 const BILL_EXAMPLE = '*bought 50 airdopes @ 850 from Sharma Traders bill 4471*';
 
@@ -67,7 +68,7 @@ function buttonIntent(id: string | undefined): Intent {
 
 const IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: MediaDeps; botPhone?: string } = {}): Router {
+export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: MediaDeps; botPhone?: string; dashboardUrl?: string } = {}): Router {
   const lowBalance = opts.lowBalance ?? 20;
   const botPhone = opts.botPhone;
   const media = opts.media;
@@ -227,6 +228,10 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       }
       case 'staff_list':
         return listStaff(tx);
+      case 'dashboard': {
+        const link = await createLoginLink(tx, shop.id, sender.userId, opts.dashboardUrl ?? 'https://app.autocraft-solutions.com');
+        return text(`📊 Your dashboard: ${link}\n\nThe link works once, within ${LINK_MINUTES} minutes. That browser then stays signed in for 30 days. Don't forward it: it opens your shop's data.`);
+      }
       case 'staff_remove':
         return removeStaff(tx, shop.id, sender.userId, intent.who);
       case 'query':

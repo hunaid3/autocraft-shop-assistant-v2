@@ -21,18 +21,12 @@ const config = loadConfig();
 const reporter = initSentry({ dsn: config.SENTRY_DSN, environment: config.APP_ENV, release: config.RELEASE });
 const pool = new pg.Pool({ connectionString: config.DATABASE_URL, ssl: db.ssl, max: config.WORKER_CONCURRENCY + 10 });
 
-const server = buildServer({
-  pool, appSecret: config.META_APP_SECRET, verifyToken: config.META_VERIFY_TOKEN,
-  phoneNumberId: config.META_PHONE_NUMBER_ID, botPhone: config.BOT_PHONE, logLevel: config.LOG_LEVEL, reporter
-});
-
 const parser = config.OPENAI_API_KEY
   ? new OpenAiParser({
       apiKey: config.OPENAI_API_KEY, model: config.OPENAI_MODEL,
       onUsage: (u) => server.log.debug(u, 'openai usage')
     })
   : new SimpleParser();
-server.log.info({ reader: config.OPENAI_API_KEY ? `openai:${config.OPENAI_MODEL}` : 'simple' }, 'message reader');
 
 // PDFs need storage and Chromium. Without the storage key, invoices still save and PDF jobs wait in
 // the queue until a process that has them starts (nothing is lost).
@@ -40,6 +34,12 @@ const renderer = chromiumRenderer({ executablePath: config.CHROME_PATH });
 const documents = config.SUPABASE_SECRET_KEY
   ? { renderer, fileStore: new SupabaseFileStore({ url: config.SUPABASE_URL, secretKey: config.SUPABASE_SECRET_KEY }) }
   : undefined;
+const server = buildServer({
+  pool, appSecret: config.META_APP_SECRET, verifyToken: config.META_VERIFY_TOKEN,
+  phoneNumberId: config.META_PHONE_NUMBER_ID, botPhone: config.BOT_PHONE, logLevel: config.LOG_LEVEL, reporter,
+  dashboard: { fileStore: documents?.fileStore }
+});
+server.log.info({ reader: config.OPENAI_API_KEY ? `openai:${config.OPENAI_MODEL}` : 'simple' }, 'message reader');
 if (!documents) server.log.warn('SUPABASE_SECRET_KEY not set: invoice PDFs will wait in the queue');
 
 const whatsapp = new CloudApiClient({ accessToken: config.META_ACCESS_TOKEN, phoneNumberId: config.META_PHONE_NUMBER_ID, graphVersion: config.META_GRAPH_VERSION });
@@ -55,7 +55,7 @@ const notify = { email: config.SES_FROM ? new SesEmailSender({ from: config.SES_
 server.log.info({ supportEmail: Boolean(notify.email) }, 'support alerts');
 
 const worker = startWorker(
-  { pool, router: shopRouter(parser, { media, botPhone: config.BOT_PHONE }), documents, whatsapp, notify },
+  { pool, router: shopRouter(parser, { media, botPhone: config.BOT_PHONE, dashboardUrl: config.DASHBOARD_URL }), documents, whatsapp, notify },
   { workerId: config.WORKER_ID, concurrency: config.WORKER_CONCURRENCY, log: server.log, reporter }
 );
 
