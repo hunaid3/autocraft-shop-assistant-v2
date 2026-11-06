@@ -24,6 +24,9 @@ const testRouter: Router = async (ctx) => {
   return phase1Router(ctx);
 };
 
+const reports: Array<{ err: string; ctx: unknown }> = [];
+const reporter = { capture: (err: unknown, ctx?: unknown) => { reports.push({ err: String(err), ctx }); }, flush: async () => {} };
+
 let app: FastifyInstance;
 let worker: Worker;
 let shopA: Awaited<ReturnType<typeof newShop>>;
@@ -34,7 +37,7 @@ beforeAll(async () => {
   shopB = await newShop('Ravi Electronics');
   app = buildServer({ pool: engine, appSecret: APP_SECRET, verifyToken: VERIFY_TOKEN, phoneNumberId: PHONE_NUMBER_ID, botPhone: BOT_PHONE, logLevel: 'silent' });
   worker = startWorker({ pool: engine, whatsapp: wa, router: testRouter },
-    { workerId: 'e2e', concurrency: 8, idleMs: 20, backoffSeconds: 0, log: { info() {}, warn() {}, error() {} } });
+    { workerId: 'e2e', concurrency: 8, idleMs: 20, backoffSeconds: 0, log: { info() {}, warn() {}, error() {} }, reporter });
 });
 afterAll(async () => { await worker.stop(); await app.close(); await engine.end(); await admin.end(); });
 
@@ -141,6 +144,12 @@ describe('when things go wrong', () => {
     expect(calls.get(id)).toBe(3);
     expect((await admin.query('select status from messages where wa_message_id = $1', [id])).rows[0].status).toBe('parked');
     expect(textOf(sentTo(phone)[0]!)).toContain('Nothing was saved');
+    // reported once, with ids only
+    const r = reports.filter((x) => (x.ctx as { tags?: { stage?: string } })?.tags?.stage === 'parked');
+    expect(r).toHaveLength(1);
+    expect(r[0]!.ctx).toMatchObject({ tags: { queue: 'inbound', stage: 'parked' }, ids: { attempt: 3 } });
+    expect(JSON.stringify(r[0]!.ctx)).not.toContain(phone);
+    expect(JSON.stringify(r[0]!.ctx)).not.toContain('crash me');
   });
 
   it('a permanent send error (e.g. number not on WhatsApp) is recorded, not retried forever', async () => {

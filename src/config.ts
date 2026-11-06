@@ -14,7 +14,9 @@ const schema = z.object({
   PORT: z.coerce.number().int().default(8080),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(200).default(8),
   WORKER_ID: z.string().default(`worker-${process.pid}`),
-  SENTRY_DSN: z.string().optional(),
+  SENTRY_DSN: z.string().url().optional(),
+  APP_ENV: z.enum(['production', 'staging', 'development']).default('development'),
+  RELEASE: z.string().optional(),   // git sha, set by the deploy
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info')
 });
 

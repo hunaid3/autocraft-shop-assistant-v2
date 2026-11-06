@@ -23,7 +23,24 @@ Phase 1 foundation:
 - [x] Outbox: replies commit with the work; WhatsApp outages delay replies but never repeat work
 - [x] Sender lookup: unknown → welcome, one shop → that shop, several → listed (choice is an open decision)
 - [x] **Phase 1 gate passed** in the simulator: 1,000 messages / 100 shops, zero duplicates, zero cross-shop reads
-- [ ] Error tracking (Sentry), backups check, deploy to AWS Mumbai — waiting on AWS activation and the Meta number
+- [x] Error tracking: Sentry project `shop-assistant-v2` (EU region); parked jobs, permanent send failures, worker and webhook errors reported, shop data scrubbed
+- [ ] Backups check, deploy to AWS Mumbai — waiting on AWS activation and the Meta number
+
+## Error tracking
+
+Sentry gets **what** went wrong, never shop data. `src/observability.ts` drops request bodies, headers, users,
+breadcrumbs and local variables from every event, keeps only id fields in `extra`, and masks phone numbers,
+emails, GSTINs and ₹ amounts in messages. Reports carry tags (`queue`, `stage`, `tenant`) and ids (`job_id`,
+`message_id`, `tenant_id`) so a problem can be traced in our own database, in India.
+
+| Reported | Level | Tags |
+|---|---|---|
+| A job parked after 3 attempts | error | `queue`, `stage=parked` |
+| A send WhatsApp refused for good (number not on WhatsApp, outside 24 h window) | warning | `queue=outbound`, `stage=permanent` |
+| Webhook request failed (e.g. database down; Meta will redeliver) | error | `stage=webhook` |
+| Worker loop, stale-job reaper, unhandled errors | error | `stage=…` |
+
+The dev workspace cannot reach Sentry, so the first live event is checked on the first AWS deploy.
 
 ## How a message flows
 

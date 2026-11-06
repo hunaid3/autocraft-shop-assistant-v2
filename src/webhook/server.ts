@@ -11,6 +11,7 @@ import type pg from 'pg';
 import { isValidSignature } from './signature.js';
 import { parseWebhook } from './parse.js';
 import { ingest } from './ingest.js';
+import { noopReporter, type ErrorReporter } from '../observability.js';
 
 export interface ServerDeps {
   pool: pg.Pool;
@@ -19,6 +20,7 @@ export interface ServerDeps {
   phoneNumberId: string;
   botPhone?: string;
   logLevel?: string;
+  reporter?: ErrorReporter;
 }
 
 declare module 'fastify' {
@@ -39,6 +41,14 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     } catch {
       done(null, null); // bad JSON still gets a signature check, then a 400
     }
+  });
+
+  // Unexpected failures (e.g. database down) → 500 so Meta redelivers, and a report with no request data.
+  const reporter = deps.reporter ?? noopReporter;
+  app.setErrorHandler((err: Error & { statusCode?: number }, req, reply) => {
+    req.log.error({ err: err.message }, 'request failed');
+    reporter.capture(err, { tags: { stage: 'webhook', route: req.routeOptions?.url ?? 'unknown' } });
+    return reply.code(err.statusCode && err.statusCode < 500 ? err.statusCode : 500).send({ ok: false });
   });
 
   app.get('/healthz', async () => {
