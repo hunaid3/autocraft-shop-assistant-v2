@@ -52,7 +52,7 @@ export async function processInbound(deps: EngineDeps, p: InboundPayload): Promi
   const sender = await withoutTenant(deps.pool, (tx) => resolveSender(tx, message.from));
 
   const run = async (tx: Tx, tenantId: string | null, userId: string | null) => {
-    const replies = await deps.router({ sender, message, tx });
+    const replies = await deps.router({ sender, message, tx, messageId: p.message_id });
     const upd = await tx.query(
       `update messages set tenant_id = $2, user_id = $3, status = 'processed', processed_at = now()
         where id = $1 and tenant_id is null and status = 'queued'`, [p.message_id, tenantId, userId]);

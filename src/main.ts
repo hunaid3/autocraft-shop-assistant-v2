@@ -5,7 +5,8 @@ import { initSentry } from './observability.js';
 import { buildServer } from './webhook/server.js';
 import { startWorker } from './queue/worker.js';
 import { CloudApiClient } from './whatsapp/client.js';
-import { phase1Router } from './engine/router.js';
+import { shopRouter } from './engine/shopRouter.js';
+import { SimpleParser } from './engine/parse.js';
 
 const config = loadConfig();
 const reporter = initSentry({ dsn: config.SENTRY_DSN, environment: config.APP_ENV, release: config.RELEASE });
@@ -18,7 +19,7 @@ const server = buildServer({
 
 const worker = startWorker(
   {
-    pool, router: phase1Router,
+    pool, router: shopRouter(new SimpleParser()), // AI reader replaces SimpleParser once the OpenAI key is set
     whatsapp: new CloudApiClient({ accessToken: config.META_ACCESS_TOKEN, phoneNumberId: config.META_PHONE_NUMBER_ID, graphVersion: config.META_GRAPH_VERSION })
   },
   { workerId: config.WORKER_ID, concurrency: config.WORKER_CONCURRENCY, log: server.log, reporter }

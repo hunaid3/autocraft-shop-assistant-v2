@@ -42,6 +42,16 @@ emails, GSTINs and ₹ amounts in messages. Reports carry tags (`queue`, `stage`
 
 The dev workspace cannot reach Sentry, so the first live event is checked on the first AWS deploy.
 
+Phase 2, slice 1 (core loop):
+
+- [x] Fixed commands without AI: yes/no, help, stock, low stock, stock of X, sales today/this month…, credits
+- [x] Pluggable reader: `SimpleParser` reads the help-text formats now; the AI reader (OpenAI) plugs into the same `Parser` interface
+- [x] Drafts: entry → confirm card with totals, GST split and credit cost; one pending per person, 10-minute life, a new entry replaces it
+- [x] Confirm in one transaction: invoice number, invoice + lines, stock out, new items, customer, credits; Cancel and Edit
+- [x] Purchases (duplicate supplier bill refused, not charged), expenses, stock counts; owner-only where Code.gs had it
+- [x] Refusals answered, not failed: not enough credits (draft kept), bill already entered, stock blocked by shop setting
+- [ ] Next: invoice PDFs, AI reader, bill photo reading, stock out without a bill, quotations
+
 ## How a message flows
 
 ```
@@ -64,7 +74,9 @@ src/main.ts            entry point: webhook server + worker in one process
 src/config.ts          settings from the environment, validated
 src/webhook/           server.ts (routes), signature.ts, parse.ts (Meta payloads), ingest.ts (store + queue)
 src/queue/             queue.ts (claim/complete/fail), worker.ts (loops, retries, stale-job reaper)
-src/engine/            senders.ts (who is this?), router.ts (what to reply), process.ts (inbound/outbound jobs)
+src/engine/            senders.ts (who is this?), router.ts (Phase 1 replies), process.ts (inbound/outbound jobs)
+                       shopRouter.ts (Phase 2 router), intents.ts + parse.ts (understanding), drafts.ts (confirm
+                       cards), commit.ts (Confirm → records), queries.ts (questions), shop.ts (shop context)
 src/whatsapp/          client.ts: Cloud API client + RecordingClient for tests
 src/domain/            pure logic: money.ts (paise + GST), format.ts, itemMatch.ts
 src/db/tenantTx.ts     withTenant(): every shop's work runs through this

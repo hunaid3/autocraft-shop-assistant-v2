@@ -18,6 +18,8 @@ export interface RouteContext {
   sender: Sender;
   message: InboundMessage;
   tx: Tx;
+  /** our messages.id for this inbound message (drafts point back to it) */
+  messageId?: string;
 }
 
 export type Router = (ctx: RouteContext) => Promise<Reply[]>;
