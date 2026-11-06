@@ -56,7 +56,21 @@ Phase 2, slice 1 (core loop):
 - [x] Refusals answered, not failed: not enough credits (draft kept), bill already entered, stock blocked by shop setting
 - [ ] Next: invoice PDFs, bill photo reading (same model, image input), stock out without a bill, quotations
 
-Bot number: **+91 70135 39950** (`BOT_PHONE=917013539950`). It must not be active on any WhatsApp app before Meta registration.
+## WhatsApp (Meta Cloud API)
+
+| | |
+|---|---|
+| Bot number | +91 70135 39950 (`BOT_PHONE=917013539950`), status **Connected** |
+| Phone number ID | `1073262579199748` (`META_PHONE_NUMBER_ID`) |
+| WhatsApp Business Account ID | `1555735762157367` (from the WhatsApp Manager link; confirm in WhatsApp Manager → Account) |
+| App ID | `878283758600961` |
+| Business ID | `9391928027569642` |
+| Display name | AutoCraft Shop Assistant, in review (usable meanwhile) |
+| Webhook | not set yet: needs the AWS URL |
+
+Secrets, all in Supabase Vault (entered directly, never in chat or this repo):
+`meta_app_secret`, `meta_access_token` (permanent system-user token), `meta_verify_token` (generated
+in the database), `openai_api_key`, `autocraft_v2_db_engine`. They move to AWS Secrets Manager with the first deploy.
 
 ## How a message flows
 
