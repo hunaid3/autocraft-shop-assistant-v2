@@ -80,6 +80,17 @@ describe('confirming an invoice', () => {
   });
 });
 
+describe('GST invoice number limit (16 characters)', () => {
+  it('refuses a shop prefix longer than 3 and any invoice number over 16', async () => {
+    await expectSqlError(withTenant(engine, S.tenantId, (tx) => tx.query("update tenant_settings set invoice_prefix = 'SALE' where tenant_id = $1", [S.tenantId])), '23514');
+    await withTenant(engine, S.tenantId, (tx) => tx.query("update tenant_settings set invoice_prefix = 'MT' where tenant_id = $1", [S.tenantId]));
+    await expectSqlError(withTenant(engine, S.tenantId, (tx) => tx.query(
+      `insert into invoices (tenant_id, number, fy, serial, invoice_date, place_of_supply, supply_type, taxable_paise, total_paise)
+       values ($1,'INV/2026-27/10000','2026-27',10000,'2026-11-06','36','intra',100,100)`, [S.tenantId])), '23514');
+    await withTenant(engine, S.tenantId, (tx) => tx.query("update tenant_settings set invoice_prefix = 'INV' where tenant_id = $1", [S.tenantId]));
+  });
+});
+
 describe('nothing is deleted or rewritten', () => {
   it('payment status can change; amounts cannot', async () => {
     const id = (await withTenant(engine, S.tenantId, (tx) => tx.query("select id from invoices where number = 'INV/2026-27/0001'"))).rows[0].id;

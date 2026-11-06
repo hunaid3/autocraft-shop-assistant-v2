@@ -66,12 +66,14 @@ Phase 2, slice 1 (core loop):
 
 | | |
 |---|---|
-| Bot number | +91 70135 39950 (`BOT_PHONE=917013539950`), status **Connected** |
-| Phone number ID | `1073262579199748` (`META_PHONE_NUMBER_ID`) |
-| WhatsApp Business Account ID | `1555735762157367` (from the WhatsApp Manager link; confirm in WhatsApp Manager → Account) |
-| App ID | `878283758600961` |
+| Bot number | +91 70135 39950 (`BOT_PHONE=917013539950`) |
+| Meta app | **AutoCraft Shop Assistant**, app ID `1541875984627224` (dedicated to V2) |
+| System user | ID `61579512603401` (issues the permanent token) |
+| WhatsApp Business Account | new **AutoCraft Shop Assistant** account: ID to be recorded |
+| Phone number ID | changes when the number is re-added: to be recorded (was `1073262579199748` in the old account) |
 | Business ID | `9391928027569642` |
-| Display name | AutoCraft Shop Assistant, in review (usable meanwhile) |
+| Display name | to request in the new account: AutoCraft Shop Assistant |
+| Previous setup | the number sat in WABA "4AEY Expense Automation" (`1555735762157367`), subscribed by the dental bot's app `878283758600961`; it is being removed from there so the dental bot is unaffected |
 | Webhook | not set yet: needs the AWS URL |
 
 Secrets, all in Supabase Vault (entered directly, never in chat or this repo):
