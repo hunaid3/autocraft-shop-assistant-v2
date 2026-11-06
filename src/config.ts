@@ -14,6 +14,10 @@ const schema = z.object({
   PORT: z.coerce.number().int().default(8080),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(200).default(8),
   WORKER_ID: z.string().default(`worker-${process.pid}`),
+  // Without a key the engine runs on the rule-based reader only.
+  OPENAI_API_KEY: z.string().min(20).optional(),
+  // Check developers.openai.com/api/docs/models before changing; must support Structured Outputs.
+  OPENAI_MODEL: z.string().default('gpt-6-luna'),
   SENTRY_DSN: z.string().url().optional(),
   APP_ENV: z.enum(['production', 'staging', 'development']).default('development'),
   RELEASE: z.string().optional(),   // git sha, set by the deploy

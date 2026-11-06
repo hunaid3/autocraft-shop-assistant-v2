@@ -7,6 +7,7 @@ import { startWorker } from './queue/worker.js';
 import { CloudApiClient } from './whatsapp/client.js';
 import { shopRouter } from './engine/shopRouter.js';
 import { SimpleParser } from './engine/parse.js';
+import { OpenAiParser } from './engine/aiParser.js';
 
 const config = loadConfig();
 const reporter = initSentry({ dsn: config.SENTRY_DSN, environment: config.APP_ENV, release: config.RELEASE });
@@ -17,9 +18,17 @@ const server = buildServer({
   phoneNumberId: config.META_PHONE_NUMBER_ID, botPhone: config.BOT_PHONE, logLevel: config.LOG_LEVEL, reporter
 });
 
+const parser = config.OPENAI_API_KEY
+  ? new OpenAiParser({
+      apiKey: config.OPENAI_API_KEY, model: config.OPENAI_MODEL,
+      onUsage: (u) => server.log.debug(u, 'openai usage')
+    })
+  : new SimpleParser();
+server.log.info({ reader: config.OPENAI_API_KEY ? `openai:${config.OPENAI_MODEL}` : 'simple' }, 'message reader');
+
 const worker = startWorker(
   {
-    pool, router: shopRouter(new SimpleParser()), // AI reader replaces SimpleParser once the OpenAI key is set
+    pool, router: shopRouter(parser),
     whatsapp: new CloudApiClient({ accessToken: config.META_ACCESS_TOKEN, phoneNumberId: config.META_PHONE_NUMBER_ID, graphVersion: config.META_GRAPH_VERSION })
   },
   { workerId: config.WORKER_ID, concurrency: config.WORKER_CONCURRENCY, log: server.log, reporter }

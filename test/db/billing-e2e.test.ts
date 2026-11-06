@@ -199,6 +199,38 @@ describe('credits and time limits', () => {
   });
 });
 
+describe('with the AI reader', () => {
+  it('a Hinglish message becomes a confirm card and then an invoice, through the same Confirm flow', async () => {
+    const { OpenAiParser } = await import('../../src/engine/aiParser.js');
+    const fake = (async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+      type: 'invoice', party_name: 'Ravi', party_gstin: null, party_phone: null, bill_no: null,
+      lines: [{ name: 'boAt Airdopes 141', qty: '2', unit: null, rate_rupees: 1300, discount_rupees: null, gst_rate: null }],
+      expense_amount_rupees: null, expense_category: null, expense_mode: null, expense_paid_to: null,
+      report: null, report_item: null, period: null, clarification: null
+    }) } }] }), { status: 200 })) as unknown as typeof fetch;
+
+    const T = await newShop('AI Shop');
+    const item = await newItem(T.tenantId, 'boAt Airdopes 141', { sale_price_paise: 125000 });
+    const aiWorker = startWorker({ pool: engine, whatsapp: wa, router: shopRouter(new OpenAiParser({ apiKey: 'sk-test', fetchImpl: fake })) },
+      { workerId: 'ai', concurrency: 1, idleMs: 10, backoffSeconds: 0, log: { info() {}, warn() {}, error() {} } });
+    await worker.stop();   // only the AI worker picks up jobs in this test
+    try {
+      const card = body(await say(T.ownerPhone, 'ravi ko 2 airdops 1300 wale de do'));
+      expect(card).toContain('Invoice* to Ravi');
+      expect(card).toContain('boAt Airdopes 141 × 2 @ ₹1,300');
+      expect(body(await say(T.ownerPhone, 'haan'))).toContain('Invoice *');   // "haan" is a fixed rule: no AI call
+      const [inv] = await inShop<{ taxable_paise: string }>(T.tenantId, 'select taxable_paise from invoices');
+      expect(inv!.taxable_paise).toBe('260000');
+      const [sl] = await inShop<{ q: string }>(T.tenantId, 'select qty_on_hand q from v_item_stock where item_id = $1', [item]);
+      expect(Number(sl!.q)).toBe(-2);
+    } finally {
+      await aiWorker.stop();
+      worker = startWorker({ pool: engine, whatsapp: wa, router: shopRouter(new SimpleParser()) },
+        { workerId: 'billing', concurrency: 4, idleMs: 10, backoffSeconds: 0, log: { info() {}, warn() {}, error() {} } });
+    }
+  });
+});
+
 describe('questions are free', () => {
   it('stock, sales and credits', async () => {
     const before = await balance();

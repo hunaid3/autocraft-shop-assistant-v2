@@ -45,12 +45,18 @@ The dev workspace cannot reach Sentry, so the first live event is checked on the
 Phase 2, slice 1 (core loop):
 
 - [x] Fixed commands without AI: yes/no, help, stock, low stock, stock of X, sales today/this month…, credits
-- [x] Pluggable reader: `SimpleParser` reads the help-text formats now; the AI reader (OpenAI) plugs into the same `Parser` interface
+- [x] Pluggable reader: `SimpleParser` reads the help-text formats; `OpenAiParser` (gpt-6-luna, strict JSON schema,
+      reasoning off, ~₹0.02 a message) reads free text, Hindi and Hinglish. It is used whenever `OPENAI_API_KEY` is set.
+      If OpenAI is down, the rule-based answer is used when it understood the message; otherwise the job retries.
+      Every AI result still goes through the confirm card, so a misread is caught before anything is saved.
+- [x] `test/unit/no-secrets.test.ts` fails CI if an OpenAI key, Meta token, Razorpay live key or private key is committed
 - [x] Drafts: entry → confirm card with totals, GST split and credit cost; one pending per person, 10-minute life, a new entry replaces it
 - [x] Confirm in one transaction: invoice number, invoice + lines, stock out, new items, customer, credits; Cancel and Edit
 - [x] Purchases (duplicate supplier bill refused, not charged), expenses, stock counts; owner-only where Code.gs had it
 - [x] Refusals answered, not failed: not enough credits (draft kept), bill already entered, stock blocked by shop setting
-- [ ] Next: invoice PDFs, AI reader, bill photo reading, stock out without a bill, quotations
+- [ ] Next: invoice PDFs, bill photo reading (same model, image input), stock out without a bill, quotations
+
+Bot number: **+91 70135 39950** (`BOT_PHONE=917013539950`). It must not be active on any WhatsApp app before Meta registration.
 
 ## How a message flows
 
