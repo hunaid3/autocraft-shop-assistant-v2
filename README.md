@@ -87,7 +87,7 @@ Phase 2, slice 1 (core loop):
 |---|---|
 | Bot number | +91 70135 39950 (`BOT_PHONE=917013539950`) |
 | Meta app | **AutoCraft Shop Assistant**, app ID `1541875984627224` (dedicated to V2) |
-| System user | ID `61579512603401` (issues the permanent token) |
+| System user | ID `61590621222343` (issues the permanent token) |
 | WhatsApp Business Account | new **AutoCraft Shop Assistant** account: ID to be recorded |
 | Phone number ID | changes when the number is re-added: to be recorded (was `1073262579199748` in the old account) |
 | Business ID | `9391928027569642` |
