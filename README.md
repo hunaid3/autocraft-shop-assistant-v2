@@ -202,7 +202,7 @@ Created on 6 Nov 2026 through the AWS connector (account 886069266990). Everythi
 | Piece | Name | Notes |
 |---|---|---|
 | Public HTTPS URL | `https://izxv17q41l.execute-api.ap-south-1.amazonaws.com` | API Gateway HTTP API; only `GET/POST /webhook` and `GET /healthz` are routed; 100 req/s, burst 200 |
-| Webhook URL for Meta | `…/webhook` | verify token = Vault `meta_verify_token` |
+| Webhook URL for Meta | `…/webhook` | verify token = Vault `meta_verify_token`; app 1541875984627224, WABA 1482068713779854 (subscribed at start-up) |
 | Engine | ECS Fargate cluster `autocraft`, service `shop-assistant` | 0.5 vCPU / 1 GB, x86, public IP for outbound only; port 8080 reachable only from the API's VPC link (security group `autocraft-engine`) |
 | Private routing | Cloud Map `autocraft.internal` / `shop-assistant` (SRV) + VPC link `autocraft-engine-link` | how the API finds the running container |
 | Image | ECR `autocraft/shop-assistant` | scanned on push, last 15 kept |
