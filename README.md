@@ -141,6 +141,9 @@ Phase 2, slice 1 (core loop):
       default GST, prices include GST, stock shortfall, low-stock default. No GSTIN or state edit. Every change is
       in `audit_log` (`settings.update`, field names only).
 - [ ] Next: OTP login for later dashboard visits (needs an authentication template)
+- [ ] Backlog (6 Nov): item upload price boundary. Agreed rule: up to 10 items = 10 credits, more than 10 = 25.
+      Today a file of exactly 10 items is charged 25 (`SMALL_IMPORT_BELOW` in `src/engine/itemImport.ts` compares
+      `< 10`); change to `<= 10` and update the help texts, ToS and tests.
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)
