@@ -31,6 +31,27 @@ describe('schema coverage', () => {
     expect(rows.map((r) => r.proname)).toEqual([]);
   });
 
+  it('the dashboard role can run only the three helpers its policies need', async () => {
+    const { rows } = await admin.query(`
+      select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'app'
+      where has_function_privilege('authenticated', p.oid, 'execute') order by 1`);
+    expect(rows.map((r) => r.proname)).toEqual(['fy_of', 'jwt_tenant', 'norm_key']);
+  });
+
+  it('the public API roles have no privileges on any table except what the dashboard reads', async () => {
+    const { rows } = await admin.query(`
+      select c.relname, string_agg(distinct p.privilege_type, ',') privs
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+      cross join lateral (select privilege_type from information_schema.role_table_grants g
+                          where g.table_schema = 'public' and g.table_name = c.relname and g.grantee in ('anon', 'authenticated')) p
+      where c.relkind in ('r', 'v') group by c.relname having string_agg(distinct p.privilege_type, ',') <> 'SELECT'`);
+    expect(rows).toEqual([]);
+    const anon = await admin.query("select count(*)::int n from information_schema.role_table_grants where grantee = 'anon' and table_schema = 'public'");
+    expect(anon.rows[0].n).toBe(0);
+    const jobs = await admin.query("select count(*)::int n from information_schema.role_table_grants where grantee in ('anon', 'authenticated') and table_name = 'jobs'");
+    expect(jobs.rows[0].n).toBe(0);
+  });
+
   it('reference tables are readable by apps but not writable', async () => {
     const { rows } = await engine.query('select count(*)::int n from gst_rates');
     expect(rows[0].n).toBeGreaterThan(0);

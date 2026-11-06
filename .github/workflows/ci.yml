@@ -34,5 +34,7 @@ jobs:
       - run: npm test
       - name: Apply migrations to a fresh database
         run: bash scripts/local-db.sh
-      - name: Database tests (isolation, numbering, credits, documents)
+      - name: Database tests (isolation, queue, webhook end to end, numbering, credits, documents)
         run: npm run test:db
+      - name: Phase 1 gate — 100 shops × 10 messages, duplicates mixed in
+        run: npm run simulate
