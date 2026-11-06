@@ -124,8 +124,9 @@ describe('guards against double entry', () => {
   });
 
   it('a WhatsApp message delivered twice is stored once', async () => {
+    const id = `wamid.TWICE.${Date.now()}.${Math.random()}`; // unique, so the test also passes on a reused database
     const ins = () => withoutTenant(engine, (tx) => tx.query(
-      "insert into messages (wa_message_id, direction, phone, msg_type, payload) values ('wamid.TEST1', 'in', '919876543210', 'text', '{}') on conflict (wa_message_id) do nothing"));
+      "insert into messages (wa_message_id, direction, phone, msg_type, payload) values ($1, 'in', '919876543210', 'text', '{}') on conflict (wa_message_id) do nothing", [id]));
     const [a, b] = await Promise.all([ins(), ins()]);
     expect((a.rowCount ?? 0) + (b.rowCount ?? 0)).toBe(1);
   });

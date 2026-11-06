@@ -75,3 +75,37 @@ describe('SimpleParser', () => {
     expect(await p.parse('what is the weather', ctx)).toEqual({ type: 'unknown' });
   });
 });
+
+describe('stock that leaves without a bill', () => {
+  const so = (reason: string, lines: unknown[], party?: string) => ({ type: 'stock_out', reason, lines, party });
+  it.each([
+    ['gave 2 airdopes sample to Ravi', so('sample_demo', [{ name: 'airdopes', qty: '2', unit: undefined }], 'Ravi')],
+    ['gave 2 airdopes as sample to Ravi Electronics', so('sample_demo', [{ name: 'airdopes', qty: '2', unit: undefined }], 'Ravi Electronics')],
+    ['3 cables damaged', so('damaged_lost', [{ name: 'cables', qty: '3', unit: undefined }])],
+    ['sent 5 airdopes, 2 cables on approval to Ravi', so('on_approval', [{ name: 'airdopes', qty: '5', unit: undefined }, { name: 'cables', qty: '2', unit: undefined }], 'Ravi')],
+    ['sold 1 cable without bill', so('cash_sale_no_bill', [{ name: 'cable', qty: '1', unit: undefined }])],
+    ['stock out 10 pcs cable branch transfer', so('branch_transfer', [{ name: 'cable', qty: '10', unit: 'pcs' }])],
+    ['transfer 10 cable to Abids branch', so('branch_transfer', [{ name: 'cable', qty: '10', unit: undefined }], 'Abids branch')],
+    ['took 1 cable for shop use', so('internal_use', [{ name: 'cable', qty: '1', unit: undefined }])]
+  ])('%s', async (text, intent) => expect(await p.parse(text, ctx)).toEqual(intent));
+
+  it('asks why when no reason is given', async () => {
+    const r = await p.parse('gave 2 airdopes to Ravi', ctx);
+    expect(r.type).toBe('unknown');
+    expect((r as { hint: string }).hint).toContain('Why did it go out?');
+  });
+
+  it('a normal sale is still an invoice', async () => {
+    expect((await p.parse('sold Ravi 2 airdopes at 1250', ctx)).type).toBe('invoice');
+  });
+
+  it('returns', async () => {
+    expect(await p.parse('returned 2 airdopes from Ravi', ctx)).toEqual({ type: 'stock_return', lines: [{ name: 'airdopes', qty: '2', unit: undefined }], party: 'Ravi' });
+    expect(await p.parse('2 airdopes came back', ctx)).toEqual({ type: 'unknown' });
+  });
+
+  it('the list and the format', () => {
+    expect(fixedRules('unbilled')).toEqual({ type: 'query', report: 'open_unbilled' });
+    expect(fixedRules('stock out')).toEqual({ type: 'how_to', about: 'stock_out' });
+  });
+});

@@ -7,7 +7,8 @@ import type { Tx } from '../db/tenantTx.js';
 import { matchItem } from '../domain/itemMatch.js';
 import { docTotals, lineAmounts, supplyType, toQtyMilli, type DocTotals } from '../domain/money.js';
 import { formatInr } from '../domain/format.js';
-import type { Intent, LineIntent } from './intents.js';
+import type { Intent, LineIntent, StockOutReason } from './intents.js';
+import { REASON_LABEL } from './intents.js';
 import { creditBalance, creditCost, loadCatalog, stockMap, type CatalogItem, type Shop } from './shop.js';
 
 export interface NewItem { name: string; unit: string; gstRate: number; hsn: string | null }
@@ -35,11 +36,27 @@ export type DraftPayload =
       source?: 'typed' | 'bill_image' | 'bill_pdf'; fileId?: string; billDate?: string;
     }
   | { kind: 'expense'; amountPaise: number; category: string; mode: string; paidTo?: string }
-  | { kind: 'stock_count'; lines: Array<{ itemId: string | null; newItem: NewItem | null; name: string; unit: string; count: string; current: number }> };
+  | { kind: 'stock_count'; lines: Array<{ itemId: string | null; newItem: NewItem | null; name: string; unit: string; count: string; current: number }> }
+  | { kind: 'stock_out'; reason: StockOutReason; party?: string; note?: string; lines: StockOutLine[] }
+  | { kind: 'stock_return'; party?: string; lines: StockOutLine[] };
+
+export interface StockOutLine { itemId: string; name: string; unit: string; qty: string; valuePaise: number }
 
 export const ACTION_FOR: Record<DraftPayload['kind'], string> = {
-  invoice: 'invoice', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count'
+  invoice: 'invoice', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return'
 };
+
+/** Goods that stay "out" until they come back or are billed. Damaged and shop-use stock is simply gone. */
+export const STAYS_OPEN: ReadonlySet<StockOutReason> = new Set(['cash_sale_no_bill', 'sample_demo', 'on_approval', 'branch_transfer', 'other']);
+
+/** Open entries a return can close, oldest first: same item, and the same person when one is named. */
+export async function openForReturn(tx: Tx, itemId: string, party: string | undefined, lock = false) {
+  const { rows } = await tx.query(
+    `select id, qty, reason, party_name, party_id, reason_note, est_value_paise from stock_adjustments
+      where status = 'open' and item_id = $1 and ($2::text is null or app.norm_key(coalesce(party_name, '')) like '%' || app.norm_key($2) || '%')
+      order by adj_date, created_at${lock ? ' for update' : ''}`, [itemId, party ?? null]);
+  return rows as Array<{ id: string; qty: string; reason: StockOutReason; party_name: string | null; party_id: string | null; reason_note: string | null; est_value_paise: string }>;
+}
 
 /** Reading a bill photo or PDF costs more than typing (the AI image read is our costliest step). */
 export const actionFor = (p: DraftPayload): string =>
@@ -169,6 +186,56 @@ export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Bu
     });
     const summary = cardText('📦 *Stock count*: set stock to', body, lines.some((l) => l.newItem) ? '🆕 = new item, added on Confirm' : '', costLine(cost, balance));
     return { ok: true, payload: { kind: 'stock_count', lines }, summary, cost, balance };
+  }
+
+  if (intent.type === 'stock_out' || intent.type === 'stock_return') {
+    if (!intent.lines.length) return fail('Which items?');
+    const catalog = await loadCatalog(tx);
+    const lines: StockOutLine[] = [];
+    for (const l of intent.lines) {
+      const m = matchItem(l.name, catalog);
+      if (!m.match) {
+        return fail(m.candidates.length
+          ? `Which "${l.name}" did you mean?\n` + m.candidates.map((c, i) => `${i + 1}. ${c.name}`).join('\n') + '\n\nSend it again with the exact name.'
+          : `"${l.name}" isn't in your items, so there is no stock of it to ${intent.type === 'stock_out' ? 'take out' : 'take back'}.`);
+      }
+      if (toQtyMilli(l.qty) <= 0) return fail(`How many ${m.match.name}?`);
+      const qty = String(Number(l.qty));
+      lines.push({ itemId: m.match.id, name: m.match.name, unit: m.match.unit, qty, valuePaise: Math.round(Number(qty) * (m.match.purchasePricePaise || m.match.salePricePaise)) });
+    }
+    const stock = await stockMap(tx, lines.map((l) => l.itemId));
+    const cost = await creditCost(tx, ACTION_FOR[intent.type]);
+    const after = (l: StockOutLine, sign: number) => (stock.get(l.itemId) ?? 0) + sign * Number(l.qty);
+
+    if (intent.type === 'stock_return') {
+      for (const l of lines) {
+        const open = await openForReturn(tx, l.itemId, intent.party);
+        const out = open.reduce((a, r) => a + Number(r.qty), 0);
+        if (out + 1e-9 < Number(l.qty)) {
+          return fail(out
+            ? `Only ${qtyText(out)} ${l.name} ${out === 1 ? 'is' : 'are'} out${intent.party ? ' with ' + intent.party : ''} without a bill. Type *unbilled* to see what is out.`
+            : `No ${l.name} is out${intent.party ? ' with ' + intent.party : ''} without a bill, so there is nothing to take back. Type *unbilled* to see what is out.`);
+        }
+      }
+      const body = lines.map((l) => `• ${l.name} × ${qtyText(l.qty)}: stock ${qtyText(stock.get(l.itemId) ?? 0)} → ${qtyText(after(l, 1))}`);
+      const summary = cardText(`↩️ *Returned*${intent.party ? ' from ' + intent.party : ''}`, body, '', costLine(cost, balance));
+      return { ok: true, cost, balance, summary, payload: { kind: 'stock_return', party: intent.party, lines } };
+    }
+
+    const warnings: string[] = [];
+    for (const l of lines) {
+      const left = after(l, -1);
+      if (left < 0) {
+        if (shop.settings.stockShortfall === 'block') return fail(`Not enough stock: ${l.name} has ${qtyText(stock.get(l.itemId) ?? 0)} ${l.unit} left.`);
+        warnings.push(`⚠️ ${l.name}: only ${qtyText(stock.get(l.itemId) ?? 0)} in stock, will show ${qtyText(left)}`);
+      }
+    }
+    const open = STAYS_OPEN.has(intent.reason);
+    const body = lines.map((l) => `• ${l.name} × ${qtyText(l.qty)}: stock ${qtyText(stock.get(l.itemId) ?? 0)} → ${qtyText(after(l, -1))}`);
+    const head = `📤 *Stock out without a bill*: ${REASON_LABEL[intent.reason]}${intent.party ? '\nTo: ' + intent.party : ''}`;
+    const tail = [...warnings, open ? '_Stays on the *unbilled* list until it comes back or is billed._' : ''].filter(Boolean).join('\n');
+    return { ok: true, cost, balance, summary: cardText(head, body, tail, costLine(cost, balance)),
+      payload: { kind: 'stock_out', reason: intent.reason, party: intent.party, note: intent.note, lines } };
   }
 
   if (intent.type === 'invoice' || intent.type === 'purchase') {

@@ -68,7 +68,12 @@ Phase 2, slice 1 (core loop):
       `source_file_id`, `bill_date`), keeps HSN on new items and charges `bill_read` credits. Staff photos are not
       downloaded. Download and AI reading run in the router's `prepare` step, outside the database transaction.
       Needs `OPENAI_API_KEY` and `SUPABASE_SECRET_KEY`; without them the owner is asked to type the purchase.
-- [ ] Next: stock out without a bill, quotations
+- [x] **Stock out without a bill**: *gave 2 airdopes sample to Ravi*, *3 cables damaged*, *sent 5 on approval to Ravi*,
+      *sold 1 cable without bill*, *took 1 cable for shop use*, *transfer 10 cable to Abids branch*. Confirm card, 1 credit,
+      staff allowed. Samples, approvals, transfers and cash sales stay on the **unbilled** list (value at cost for the owner)
+      until *returned 2 airdopes from Ravi* (free; part returns keep the rest open); damage and shop use are written off.
+      No reason given → the bot asks why rather than guessing.
+- [ ] Next: quotations
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

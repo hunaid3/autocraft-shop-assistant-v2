@@ -14,8 +14,8 @@
  */
 import { z } from 'zod';
 import { toPaise } from '../domain/money.js';
-import type { Intent, ParseContext, Parser } from './intents.js';
-import { SimpleParser } from './parse.js';
+import { STOCK_OUT_REASONS, type Intent, type ParseContext, type Parser } from './intents.js';
+import { REASON_HINT, SimpleParser } from './parse.js';
 
 export class AiUnavailableError extends Error {}
 
@@ -36,13 +36,14 @@ const LINE = z.object({
   rate_rupees: n(z.number()), discount_rupees: n(z.number()), gst_rate: n(z.number())
 });
 const OUT = z.object({
-  type: z.enum(['help', 'greeting', 'confirm', 'cancel', 'query', 'invoice', 'purchase', 'expense', 'stock_count', 'unknown']),
+  type: z.enum(['help', 'greeting', 'confirm', 'cancel', 'query', 'invoice', 'purchase', 'expense', 'stock_count', 'stock_out', 'stock_return', 'unknown']),
   party_name: n(z.string()), party_gstin: n(z.string()), party_phone: n(z.string()),
   lines: z.array(LINE),
   bill_no: n(z.string()),
   expense_amount_rupees: n(z.number()), expense_category: n(z.string()),
   expense_mode: n(z.enum(['cash', 'upi', 'bank', 'card', 'cheque', 'other'])), expense_paid_to: n(z.string()),
-  report: n(z.enum(['item_stock', 'stock_all', 'low_stock', 'sales_period', 'credits'])),
+  stock_out_reason: n(z.enum(STOCK_OUT_REASONS)),
+  report: n(z.enum(['item_stock', 'stock_all', 'low_stock', 'sales_period', 'credits', 'open_unbilled'])),
   report_item: n(z.string()),
   period: n(z.enum(['today', 'yesterday', 'this_week', 'this_month', 'last_month', 'this_fy'])),
   clarification: n(z.string())
@@ -53,7 +54,7 @@ const nullable = (t: object) => ({ anyOf: [t, { type: 'null' }] });
 export const JSON_SCHEMA = {
   type: 'object', additionalProperties: false,
   required: ['type', 'party_name', 'party_gstin', 'party_phone', 'lines', 'bill_no', 'expense_amount_rupees', 'expense_category',
-    'expense_mode', 'expense_paid_to', 'report', 'report_item', 'period', 'clarification'],
+    'expense_mode', 'expense_paid_to', 'stock_out_reason', 'report', 'report_item', 'period', 'clarification'],
   properties: {
     type: { type: 'string', enum: OUT.shape.type.options },
     party_name: nullable({ type: 'string' }), party_gstin: nullable({ type: 'string' }), party_phone: nullable({ type: 'string' }),
@@ -71,7 +72,8 @@ export const JSON_SCHEMA = {
     bill_no: nullable({ type: 'string' }),
     expense_amount_rupees: nullable({ type: 'number' }), expense_category: nullable({ type: 'string' }),
     expense_mode: nullable({ type: 'string', enum: ['cash', 'upi', 'bank', 'card', 'cheque', 'other'] }), expense_paid_to: nullable({ type: 'string' }),
-    report: nullable({ type: 'string', enum: ['item_stock', 'stock_all', 'low_stock', 'sales_period', 'credits'] }),
+    stock_out_reason: nullable({ type: 'string', enum: [...STOCK_OUT_REASONS] }),
+    report: nullable({ type: 'string', enum: ['item_stock', 'stock_all', 'low_stock', 'sales_period', 'credits', 'open_unbilled'] }),
     report_item: nullable({ type: 'string' }),
     period: nullable({ type: 'string', enum: ['today', 'yesterday', 'this_week', 'this_month', 'last_month', 'this_fy'] }),
     clarification: nullable({ type: 'string' })
@@ -89,7 +91,11 @@ export function systemPrompt(ctx: ParseContext, maxCatalog: number): string {
     '- purchase: buying stock from a supplier ("bought", "kharida", "purchase"). party_name = supplier; bill_no if given.',
     '- expense: money paid out that is not stock (rent, salary, electricity, tea, transport). Amount in rupees.',
     '- stock_count: the person states how many they HAVE now ("stock count", "abhi 40 hai").',
-    '- query: a question; set report (item_stock needs report_item; sales_period needs period).',
+    '- stock_out: stock left WITHOUT a bill. stock_out_reason: sample_demo, on_approval, damaged_lost, internal_use (used in the shop),',
+    '  branch_transfer, cash_sale_no_bill ("sold without bill", "bina bill"), other. party_name = who got it. Lines need no rate.',
+    '  If the reason is not said, use unknown and ask why in clarification.',
+    '- stock_return: goods that went out without a bill came back ("returned", "wapas aaya"). party_name = who returned it.',
+    '- query: a question; set report (item_stock needs report_item; sales_period needs period; open_unbilled = what is out without a bill).',
     '- confirm / cancel: yes/no to the last summary. help, greeting.',
     '- unknown: anything else; put a short question in clarification if one detail is missing.',
     '',
@@ -120,6 +126,12 @@ function toIntent(o: Out): Intent {
       return amt ? { type: 'expense', amountPaise: amt, category: o.expense_category ?? 'General', mode: o.expense_mode ?? 'cash', paidTo: o.expense_paid_to ?? undefined }
         : { type: 'how_to', about: 'expense' };
     }
+    case 'stock_out':
+      if (!lines.length) return { type: 'how_to', about: 'stock_out' };
+      if (!o.stock_out_reason) return { type: 'unknown', hint: o.clarification ?? REASON_HINT };
+      return { type: 'stock_out', reason: o.stock_out_reason, party: party.name, lines: lines.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit })) };
+    case 'stock_return':
+      return lines.length ? { type: 'stock_return', party: party.name, lines: lines.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit })) } : { type: 'how_to', about: 'stock_out' };
     case 'stock_count': return lines.length ? { type: 'stock_count', lines: lines.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit })) } : { type: 'how_to', about: 'stock_count' };
     case 'query':
       if (!o.report) return { type: 'unknown', hint: o.clarification ?? undefined };

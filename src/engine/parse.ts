@@ -6,7 +6,7 @@
  *      OpenAI key is set, returning the same Intent shapes.
  */
 import { toPaise } from '../domain/money.js';
-import type { Intent, LineIntent, ParseContext, Parser, PeriodName, PartyIntent } from './intents.js';
+import type { Intent, LineIntent, ParseContext, Parser, PeriodName, PartyIntent, QtyLine, StockOutReason } from './intents.js';
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
 const lower = (s: string) => clean(s).toLowerCase();
@@ -30,6 +30,7 @@ export function fixedRules(text: string): Intent | null {
   if (/^(credits?|balance|wallet|my credits)$/.test(t)) return { type: 'query', report: 'credits' };
   if (/^(stock|full stock|all stock|stock list|inventory)$/.test(t)) return { type: 'query', report: 'stock_all' };
   if (/^(low stock|stock low|reorder)$/.test(t)) return { type: 'query', report: 'low_stock' };
+  if (/^(unbilled|open unbilled|goods out|stock out list|out list|samples?( out)?|on approval|pending returns?)$/.test(t)) return { type: 'query', report: 'open_unbilled' };
 
   const sales = /^(sales?|sale report)\s+(.+)$/.exec(t);
   if (sales) {
@@ -38,7 +39,7 @@ export function fixedRules(text: string): Intent | null {
   }
   if (/^(sales?|sale report)$/.test(t)) return { type: 'query', report: 'sales_period', period: 'today' };
 
-  const itemStock = /^(?:stock|how many|qty)\s+(?:of\s+|for\s+)?(?!count\b)(.+)$/.exec(t);
+  const itemStock = /^(?:stock|how many|qty)\s+(?:of\s+|for\s+)?(?!count\b|out\b)(.+)$/.exec(t);
   if (itemStock) return { type: 'query', report: 'item_stock', item: itemStock[1]! };
 
   // a verb with no details → explain the format instead of guessing
@@ -46,6 +47,7 @@ export function fixedRules(text: string): Intent | null {
   if (/^(purchase|bought|buy)$/.test(t)) return { type: 'how_to', about: 'purchase' };
   if (/^(expense|paid|spent)$/.test(t)) return { type: 'how_to', about: 'expense' };
   if (/^(stock count|count)$/.test(t)) return { type: 'how_to', about: 'stock_count' };
+  if (/^(stock out|out|gave|sent|damaged|returned|return)$/.test(t)) return { type: 'how_to', about: 'stock_out' };
   return null;
 }
 
@@ -96,9 +98,67 @@ const MODES: Array<[RegExp, string]> = [
   [/\b(bank|neft|rtgs|imps|transfer)\b/i, 'bank'], [/\b(card|debit card|credit card)\b/i, 'card'], [/\b(cheque|check)\b/i, 'cheque']
 ];
 
+// Why stock left without a bill. Order matters: "cash sale without bill" before plain "sale".
+const REASONS: Array<[RegExp, StockOutReason]> = [
+  [/\b(?:as\s+|for\s+)?(?:cash\s+sale|sold\s+without\s+bill|without\s+(?:a\s+)?bill|no\s+bill|bina\s+bill)\b/i, 'cash_sale_no_bill'],
+  [/\b(?:as\s+|for\s+)?(?:a\s+)?(?:samples?|demo|display)\b/i, 'sample_demo'],
+  [/\b(?:on\s+|for\s+)?(?:approval|trial)\b/i, 'on_approval'],
+  [/\b(?:for\s+)?(?:shop\s+use|own\s+use|internal(?:\s+use)?|personal\s+use|used\s+in\s+shop|self\s+use)\b/i, 'internal_use'],
+  [/\b(?:damaged|damage|broken|broke|lost|expired|defective|stolen|faulty|kharab|toota|tuta)\b/i, 'damaged_lost'],
+  [/\b(?:branch\s+transfer|transfer(?:red)?|moved|to\s+(?:the\s+)?(?:other\s+)?(?:branch|godown|warehouse))\b/i, 'branch_transfer']
+];
+
+export const REASON_HINT = 'Why did it go out? Add one of: *sample*, *on approval*, *damaged*, *shop use*, *branch transfer* or *without bill*, e.g.\n*gave 2 airdopes sample to Ravi*';
+
+const QTY_LINE = new RegExp(String.raw`^(${NUM})\s*(?:(${UNITS})\b\.?\s*)?(?:x\s+)?(?:of\s+)?(.+)$`, 'i');
+function qtyLines(s: string): QtyLine[] | null {
+  const segs = splitLines(s);
+  const out = segs.map((seg) => {
+    const m = QTY_LINE.exec(seg);
+    const name = m ? clean(m[3]!) : '';
+    return m && name && !/^\d+$/.test(name) ? { name, qty: m[1]!.replace(/,/g, ''), unit: m[2]?.toLowerCase() } : null;
+  });
+  return out.length && out.every(Boolean) ? (out as QtyLine[]) : null;
+}
+
+/** "gave 2 airdopes, 1 cable sample to Ravi" / "3 cables damaged" / "stock out 5 cable branch transfer" */
+function stockOut(rest: string, verbReason?: StockOutReason): Intent {
+  let reason: StockOutReason | undefined = verbReason;
+  for (const [re, r] of REASONS) {
+    if (re.test(rest)) { reason ??= r; rest = rest.replace(re, ' '); }
+  }
+  let party: string | undefined;
+  const to = /\b(?:to|for|with)\s+([^\d,;\n][^,;\n]*)$/i.exec(clean(rest));
+  if (to) { party = clean(to[1]!); rest = clean(rest).slice(0, to.index); }
+  const lines = qtyLines(rest.replace(/\b(?:as|on|for|of|the)\s*$/i, ''));
+  if (!lines) return { type: 'how_to', about: 'stock_out' };
+  if (!reason) return { type: 'unknown', hint: REASON_HINT };
+  return { type: 'stock_out', reason, lines, party };
+}
+
 export class SimpleParser implements Parser {
   async parse(text: string, _ctx: ParseContext): Promise<Intent> {
     const t = clean(text);
+
+    // before "sold": "sold 2 cables without bill" is stock out, not an invoice
+    if (/^sold\b/i.test(t) && REASONS[0]![0].test(t)) return stockOut(t.replace(/^sold\b/i, ''), 'cash_sale_no_bill');
+
+    const ret = /^(?:returned|return|came\s+back|got\s+back|wapas(?:\s+aaya)?)\b[:\s]*(.*)$/is.exec(t);
+    if (ret) {
+      let rest = ret[1]!;
+      let party: string | undefined;
+      const from = /\bfrom\s+(.+)$/i.exec(rest);
+      if (from) { party = clean(from[1]!); rest = rest.slice(0, from.index); }
+      const lines = qtyLines(rest.replace(/\b(?:back|returned)\s*$/i, ''));
+      return lines ? { type: 'stock_return', lines, party } : { type: 'how_to', about: 'stock_out' };
+    }
+
+    const out = /^(?:stock\s*out|out|gave|given|give|sent|send|took|taken|issued|issue)\b[:\s]*(.*)$/is.exec(t);
+    if (out) return stockOut(out[1]!);
+    const xfer = /^(?:transfer(?:red)?|moved)\b[:\s]*(.*)$/is.exec(t);
+    if (xfer) return stockOut(xfer[1]!, 'branch_transfer');
+    // "3 cables damaged", "2 airdopes lost"
+    if (/^\d/.test(t) && REASONS.some(([re, r]) => r !== 'branch_transfer' && re.test(t)) && !/\b(?:at|@|rs\.?|₹)\s*\d/i.test(t)) return stockOut(t);
 
     const bill = /^(?:bill|invoice|sale|sold|sell)\b[:\s]*(.*)$/is.exec(t);
     if (bill) {

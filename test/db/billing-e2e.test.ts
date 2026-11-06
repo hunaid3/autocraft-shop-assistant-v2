@@ -219,7 +219,7 @@ describe('with the AI reader', () => {
     const fake = (async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
       type: 'invoice', party_name: 'Ravi', party_gstin: null, party_phone: null, bill_no: null,
       lines: [{ name: 'boAt Airdopes 141', qty: '2', unit: null, rate_rupees: 1300, discount_rupees: null, gst_rate: null }],
-      expense_amount_rupees: null, expense_category: null, expense_mode: null, expense_paid_to: null,
+      expense_amount_rupees: null, expense_category: null, expense_mode: null, expense_paid_to: null, stock_out_reason: null,
       report: null, report_item: null, period: null, clarification: null
     }) } }] }), { status: 200 })) as unknown as typeof fetch;
 

@@ -186,7 +186,9 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       case 'invoice':
       case 'purchase':
       case 'expense':
-      case 'stock_count': {
+      case 'stock_count':
+      case 'stock_out':
+      case 'stock_return': {
         const b = await buildDraft(tx, shop, intent);
         if (!b.ok) return text(b.reply);
         if (b.cost > b.balance) {

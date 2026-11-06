@@ -5,7 +5,7 @@ const ctx = { today: '2026-11-06', catalog: ['boAt Airdopes 141', 'USB-C Cable',
 
 const blank = {
   type: 'unknown', party_name: null, party_gstin: null, party_phone: null, lines: [], bill_no: null,
-  expense_amount_rupees: null, expense_category: null, expense_mode: null, expense_paid_to: null,
+  expense_amount_rupees: null, expense_category: null, expense_mode: null, expense_paid_to: null, stock_out_reason: null,
   report: null, report_item: null, period: null, clarification: null
 };
 const line = (o: object) => ({ name: '', qty: '1', unit: null, rate_rupees: null, discount_rupees: null, gst_rate: null, ...o });

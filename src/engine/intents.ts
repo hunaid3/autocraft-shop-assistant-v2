@@ -19,7 +19,18 @@ export interface PartyIntent {
   phone?: string;
 }
 
-export type ReportName = 'item_stock' | 'stock_all' | 'low_stock' | 'sales_period' | 'credits';
+export type ReportName = 'item_stock' | 'stock_all' | 'low_stock' | 'sales_period' | 'credits' | 'open_unbilled';
+
+/** Why stock left without a bill (matches stock_adjustments.reason). */
+export const STOCK_OUT_REASONS = ['cash_sale_no_bill', 'sample_demo', 'on_approval', 'internal_use', 'damaged_lost', 'branch_transfer', 'other'] as const;
+export type StockOutReason = typeof STOCK_OUT_REASONS[number];
+export const REASON_LABEL: Record<StockOutReason, string> = {
+  cash_sale_no_bill: 'sold without bill', sample_demo: 'sample/demo', on_approval: 'on approval', internal_use: 'shop use',
+  damaged_lost: 'damaged/lost', branch_transfer: 'branch transfer', other: 'other'
+};
+
+export type QtyLine = { name: string; qty: string; unit?: string };
+export type HowToTopic = 'invoice' | 'purchase' | 'expense' | 'stock_count' | 'stock_out';
 export type PeriodName = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'this_fy';
 
 export type Intent =
@@ -37,8 +48,10 @@ export type Intent =
       printed?: { taxablePaise?: number; gstPaise?: number; totalPaise?: number };
     }
   | { type: 'expense'; amountPaise: number; category: string; mode: string; paidTo?: string; note?: string }
-  | { type: 'stock_count'; lines: Array<{ name: string; qty: string; unit?: string }> }
-  | { type: 'how_to'; about: 'invoice' | 'purchase' | 'expense' | 'stock_count' }
+  | { type: 'stock_count'; lines: QtyLine[] }
+  | { type: 'stock_out'; reason: StockOutReason; lines: QtyLine[]; party?: string; note?: string }
+  | { type: 'stock_return'; lines: QtyLine[]; party?: string }
+  | { type: 'how_to'; about: HowToTopic }
   | { type: 'unknown'; hint?: string };
 
 export interface ParseContext {

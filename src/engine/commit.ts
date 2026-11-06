@@ -6,7 +6,8 @@
 import type { Tx } from '../db/tenantTx.js';
 import { formatDocNumber, formatInr, fyOf, istDate } from '../domain/format.js';
 import { normKey } from '../domain/itemMatch.js';
-import { ACTION_FOR, actionFor, qtyText, type DraftLine, type DraftPayload, type NewItem } from './drafts.js';
+import { ACTION_FOR, actionFor, openForReturn, qtyText, STAYS_OPEN, type DraftLine, type DraftPayload, type NewItem } from './drafts.js';
+import { REASON_LABEL } from './intents.js';
 import { stockMap, type Shop } from './shop.js';
 import { enqueue } from '../queue/queue.js';
 import type { InvoicePdfPayload } from '../documents/invoiceJob.js';
@@ -178,12 +179,75 @@ async function commitStockCount(tx: Tx, shop: Shop, d: Extract<DraftPayload, { k
   return { refType: 'stock_count', refId: ref[0].id, balance, reply: '✅ Stock updated.' + createdLine(created) + '\n' + (await stockAfter(tx, d.lines)) + creditsLine(cost, balance) };
 }
 
+async function commitStockOut(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'stock_out' }>, cost: number, userId: string): Promise<CommitResult> {
+  const open = STAYS_OPEN.has(d.reason);
+  const stock = await stockMap(tx, d.lines.map((l) => l.itemId));
+  if (shop.settings.stockShortfall === 'block') {
+    const used = new Map<string, number>();
+    for (const l of d.lines) {
+      used.set(l.itemId, (used.get(l.itemId) ?? 0) + Number(l.qty));
+      if ((stock.get(l.itemId) ?? 0) - used.get(l.itemId)! < 0) throw new UserError(`Not enough stock: ${l.name} has ${qtyText(stock.get(l.itemId) ?? 0)} ${l.unit} left. Nothing was saved.`);
+    }
+  }
+  let first: string | null = null;
+  for (const l of d.lines) {
+    const { rows } = await tx.query(
+      `insert into stock_adjustments (tenant_id, adj_date, item_id, qty, reason, reason_note, party_name, est_value_paise, status, resolved_at, created_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
+      [shop.id, istDate(), l.itemId, l.qty, d.reason, d.note ?? null, d.party ?? null, l.valuePaise, open ? 'open' : 'written_off', open ? null : new Date(), userId]);
+    first ??= rows[0].id;
+    await tx.query(
+      "insert into stock_ledger (tenant_id, item_id, qty_out, movement_type, ref_type, ref_id, note, created_by) values ($1,$2,$3,'unbilled_out','stock_adjustment',$4,$5,$6)",
+      [shop.id, l.itemId, l.qty, rows[0].id, REASON_LABEL[d.reason] + (d.party ? ' · ' + d.party : ''), userId]);
+  }
+  const balance = await debit(tx, shop.id, cost, ACTION_FOR.stock_out, 'stock_adjustment', first!, userId);
+  return {
+    refType: 'stock_adjustment', refId: first!, balance,
+    reply: `✅ Stock out saved (${REASON_LABEL[d.reason]}${d.party ? ', ' + d.party : ''}).\n` + (await stockAfter(tx, d.lines)) +
+      (open ? '\nIt stays on the *unbilled* list until it comes back or is billed.' : '') + creditsLine(cost, balance)
+  };
+}
+
+async function commitStockReturn(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'stock_return' }>, cost: number, userId: string): Promise<CommitResult> {
+  let first: string | null = null;
+  for (const l of d.lines) {
+    // Close open entries oldest first. Entries can't be edited, so a part-return closes the entry
+    // and opens a new one for what is still out (no stock moves for that remainder).
+    let left = Number(l.qty);
+    const open = await openForReturn(tx, l.itemId, d.party, true);
+    if (open.reduce((a, r) => a + Number(r.qty), 0) + 1e-9 < left) {
+      throw new UserError(`${l.name}: less is out${d.party ? ' with ' + d.party : ''} than ${qtyText(l.qty)} now (it may have been returned already). Nothing was saved.`);
+    }
+    for (const r of open) {
+      if (left <= 1e-9) break;
+      const take = Math.min(left, Number(r.qty));
+      const rest = Math.round((Number(r.qty) - take) * 1000) / 1000;
+      await tx.query("update stock_adjustments set status = 'returned', resolved_at = now() where id = $1", [r.id]);
+      if (rest > 0) {
+        await tx.query(
+          `insert into stock_adjustments (tenant_id, adj_date, item_id, qty, reason, reason_note, party_id, party_name, est_value_paise, status, created_by)
+           select tenant_id, adj_date, item_id, $2::numeric, reason, coalesce(reason_note || ' · ', '') || 'still out after a part return', party_id, party_name,
+                  round(est_value_paise * $2::numeric / qty), 'open', $3 from stock_adjustments where id = $1`, [r.id, rest, userId]);
+      }
+      await tx.query(
+        "insert into stock_ledger (tenant_id, item_id, qty_in, movement_type, ref_type, ref_id, note, created_by) values ($1,$2,$3,'unbilled_return','stock_adjustment',$4,$5,$6)",
+        [shop.id, l.itemId, take, r.id, 'Returned' + (r.party_name ? ' from ' + r.party_name : ''), userId]);
+      first ??= r.id;
+      left = Math.round((left - take) * 1000) / 1000;
+    }
+  }
+  const balance = await debit(tx, shop.id, cost, ACTION_FOR.stock_return, 'stock_adjustment', first!, userId);
+  return { refType: 'stock_adjustment', refId: first!, balance, reply: `✅ Back in stock${d.party ? ' from ' + d.party : ''}.\n` + (await stockAfter(tx, d.lines)) + creditsLine(cost, balance) };
+}
+
 export async function commitDraft(tx: Tx, shop: Shop, payload: DraftPayload, cost: number, userId: string, phone: string | null = null): Promise<CommitResult> {
   switch (payload.kind) {
     case 'invoice': return commitInvoice(tx, shop, payload, cost, userId, phone);
     case 'purchase': return commitPurchase(tx, shop, payload, cost, userId);
     case 'expense': return commitExpense(tx, shop, payload, cost, userId);
     case 'stock_count': return commitStockCount(tx, shop, payload, cost, userId);
+    case 'stock_out': return commitStockOut(tx, shop, payload, cost, userId);
+    case 'stock_return': return commitStockReturn(tx, shop, payload, cost, userId);
   }
 }
 

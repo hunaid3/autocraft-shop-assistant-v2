@@ -2,7 +2,7 @@
 import type { Tx } from '../db/tenantTx.js';
 import { formatInr, istDate } from '../domain/format.js';
 import { matchItem } from '../domain/itemMatch.js';
-import type { Intent, PeriodName } from './intents.js';
+import { REASON_LABEL, type HowToTopic, type Intent, type PeriodName, type StockOutReason } from './intents.js';
 import type { Role } from './senders.js';
 import { creditBalance, loadCatalog, stockMap } from './shop.js';
 import { qtyText } from './drafts.js';
@@ -80,6 +80,21 @@ export async function runQuery(tx: Tx, q: Extract<Intent, { type: 'query' }>, ro
       }).join('\n') + hint);
     }
 
+    case 'open_unbilled': {
+      const { rows } = await tx.query(
+        `select i.name, i.unit, a.qty, a.reason, a.party_name, a.est_value_paise, a.adj_date,
+                (app.today_ist() - a.adj_date) as days
+           from stock_adjustments a join items i on i.id = a.item_id
+          where a.status = 'open' order by a.adj_date, a.created_at limit 60`);
+      if (!rows.length) return '✅ Nothing is out without a bill. Samples, goods on approval and cash sales without a bill show here until they come back or are billed.';
+      const total = rows.reduce((a, r) => a + Number(r.est_value_paise), 0);
+      return trunc(`📤 *Out without a bill (${rows.length})*\n` + rows.map((r) =>
+        `• ${r.name} × ${qtyText(r.qty)} · ${REASON_LABEL[r.reason as StockOutReason]}${r.party_name ? ' · ' + r.party_name : ''}` +
+        ` · ${r.days === 0 ? 'today' : r.days + 'd ago'}${role === 'owner' && Number(r.est_value_paise) ? ` · ₹${formatInr(Number(r.est_value_paise))}` : ''}`).join('\n') +
+        (role === 'owner' ? `\n\nValue out (at cost): ₹${formatInr(total)}` : '') +
+        '\n\nWhen goods come back: *returned 2 airdopes from Ravi*');
+    }
+
     case 'sales_period': {
       const p = periodRange(q.period ?? 'today');
       const { rows: [s] } = await tx.query(
@@ -97,14 +112,16 @@ export function helpText(name: string | null, role: Role): string {
   const owner = role === 'owner';
   return `👋 Hi${name ? ' ' + name : ''}! Send messages like:\n\n` +
     '🧾 *bill* Ravi Electronics 10 airdopes at 1250, 5 cables at 199\n' +
-    (owner ? '📥 *bought* 50 airdopes @ 850 from Sharma Traders bill 4471\n💸 *paid* 3500 shop rent cash\n🔢 *stock count* airdopes 141 40, cable 25\n' : '') +
-    '\nAsk:\n• stock of airdopes\n• stock / low stock\n• sales today / this month\n• credits' +
+    (owner ? '📥 *bought* 50 airdopes @ 850 from Sharma Traders bill 4471 (or send a photo of the bill)\n💸 *paid* 3500 shop rent cash\n🔢 *stock count* airdopes 141 40, cable 25\n' : '') +
+    '📤 *gave* 2 airdopes sample to Ravi · *3 cables damaged* · *returned* 2 airdopes from Ravi\n' +
+    '\nAsk:\n• stock of airdopes\n• stock / low stock\n• unbilled (goods out without a bill)\n• sales today / this month\n• credits' +
     '\n\nI always show a summary first. Nothing is saved until you tap ✅ Confirm.';
 }
 
-export const HOW_TO: Record<'invoice' | 'purchase' | 'expense' | 'stock_count', string> = {
+export const HOW_TO: Record<HowToTopic, string> = {
   invoice: '🧾 To make a bill, send the customer, items, quantity and rate, e.g.\n*bill Ravi Electronics 10 airdopes at 1250, 5 cables at 199*',
   purchase: '📥 To record a purchase, send the items, quantity, rate and supplier, e.g.\n*bought 50 airdopes @ 850 from Sharma Traders bill 4471*',
   expense: '💸 To record an expense, send the amount, what it was for and how you paid, e.g.\n*paid 3500 shop rent cash*',
-  stock_count: '🔢 To set how many you have in hand, e.g.\n*stock count airdopes 141 40, cable 25*'
+  stock_count: '🔢 To set how many you have in hand, e.g.\n*stock count airdopes 141 40, cable 25*',
+  stock_out: '📤 When stock leaves without a bill, say what, how many and why, e.g.\n*gave 2 airdopes sample to Ravi*\n*3 cables damaged*\n*sent 5 airdopes on approval to Ravi*\n*sold 1 cable without bill*\n\nWhen it comes back: *returned 2 airdopes from Ravi*. To see what is out: *unbilled*'
 };
