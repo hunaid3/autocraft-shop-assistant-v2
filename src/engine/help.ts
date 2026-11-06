@@ -29,9 +29,10 @@ const TOPICS: Record<HelpTopic, Topic> = {
       '*Purchase:* bought 50 airdopes @ 850 from Sharma Traders bill 4471\n' +
       '*Add stock:* add 50 cables @ 100 to stock, selling price 150 with 18% gst\n' +
       '*Hinglish:* Sharma se 20 charger liye 300 ke\n' +
-      '*Bill photo:* just send a photo or PDF of the supplier bill; it comes back as a card to confirm\n\n' +
+      '*Bill photo:* just send a photo or PDF of the supplier bill; it comes back as a card to confirm\n' +
+      '*Whole item list:* send an Excel or CSV file (owner; *template* for a ready sheet)\n\n' +
       'New items are created on Confirm; a selling price you give is saved on the item.\n' +
-      '💳 Typed 1 credit · bill photo/PDF 3 credits'
+      '💳 Typed 1 credit · bill photo/PDF 3 credits · item list 10 (under 10 items) or 25'
   },
   stockout: {
     title: '📤 Stock out & returns', description: 'Samples, approval, damage, cash sale without bill',
@@ -56,12 +57,13 @@ const TOPICS: Record<HelpTopic, Topic> = {
     title: '🏪 Shop details', description: 'GSTIN, address, UPI, logo, phone', ownerOnly: true,
     body: () => '🏪 *Shop details*\n\n' +
       '*See them:* profile\n' +
-      '*GSTIN:* update gstin 36AABCU9603R1ZM (or *remove gstin*)\n' +
+      '*GSTIN:* set once at sign-up; to change it, send *support*\n' +
       '*Address:* update address 12-3, Abids Road, Hyderabad 500001\n' +
       '*UPI:* update upi myshop@okhdfcbank (adds a pay QR on bills)\n' +
       '*Phone / email / name:* update phone 9876543210 · update email … · update shop name …\n' +
       '*Logo:* send a photo with the caption *logo*\n' +
-      '*Dashboard:* send *dashboard* for a link to sales, stock, bills and exports on the web\n\n' +
+      '*Dashboard:* send *dashboard* for sales, stock, bills, exports and shop settings (invoice prefix, bank details, logo) on the web\n' +
+      '*Another shop:* *add shop* opens one more shop on this number (it needs its own GSTIN); *switch shop* moves between them\n\n' +
       'Changes show a card first. Free.'
   },
   staff: {
@@ -78,7 +80,7 @@ const TOPICS: Record<HelpTopic, Topic> = {
       '• Bill with PDF: 3\n• Bill read from a photo/PDF: 3\n• Quote: 1\n• Typed purchase / expense / stock entry: 1\n' +
       '• Stock out without a bill: 1 (returns free)\n• Staff: 25 each\n• Item list upload: 10 (under 10 items) or 25\n' +
       '• Questions, reports, help, shop details: free\n\n' +
-      'Credits last 12 months; older credits are used first. Type *credits* for your balance, *recharge* to buy more.',
+      'Credits last 24 months; older credits are used first. Type *credits* for your balance, *recharge* to buy more.',
     buttons: [['RECHARGE', '💳 Recharge']]
   },
   support: {

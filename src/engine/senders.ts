@@ -1,8 +1,10 @@
 /**
  * Who is messaging? The phone number is the identity, like a bank's registered mobile.
  *   unknown  → not registered: onboarding
- *   member   → one shop: work in that shop
- *   multiple → several shops: how they pick one is an open decision in the plan
+ *   member   → works in one shop: the only one, or the one picked with "switch shop"
+ *              (otherShops lists the rest, so the reply can offer a switch)
+ *   multiple → several shops and none picked yet: they choose from a list
+ * A number may be in several shops only when each shop has its own GSTIN (enforced in the database).
  */
 import type pg from 'pg';
 
@@ -18,7 +20,7 @@ export interface Membership {
 
 export type Sender =
   | { kind: 'unknown'; phone: string }
-  | ({ kind: 'member'; phone: string } & Membership)
+  | ({ kind: 'member'; phone: string; otherShops?: Membership[]; shops?: Membership[] } & Membership)
   | { kind: 'multiple'; phone: string; memberships: Membership[] };
 
 export async function resolveSender(db: Pick<pg.PoolClient, 'query'>, phone: string): Promise<Sender> {
@@ -28,5 +30,8 @@ export async function resolveSender(db: Pick<pg.PoolClient, 'query'>, phone: str
   }));
   if (ms.length === 0) return { kind: 'unknown', phone };
   if (ms.length === 1) return { kind: 'member', phone, ...ms[0]! };
-  return { kind: 'multiple', phone, memberships: ms };
+  const active = (await db.query('select app.active_shop($1) as id', [phone])).rows[0]?.id as string | null;
+  const pick = ms.find((m) => m.tenantId === active);
+  if (!pick) return { kind: 'multiple', phone, memberships: ms };
+  return { kind: 'member', phone, ...pick, otherShops: ms.filter((m) => m !== pick), shops: ms };
 }

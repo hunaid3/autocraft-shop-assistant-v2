@@ -18,7 +18,9 @@ import type { Sender } from './senders.js';
 export type Reply =
   | { kind: 'text'; text: string }
   | { kind: 'buttons'; text: string; buttons: Array<{ id: string; title: string }> }
-  | { kind: 'list'; text: string; button: string; rows: Array<{ id: string; title: string; description?: string }>; sectionTitle?: string };
+  | { kind: 'list'; text: string; button: string; rows: Array<{ id: string; title: string; description?: string }>; sectionTitle?: string }
+  // a stored file, uploaded to WhatsApp when the reply is sent
+  | { kind: 'document'; fileId: string; filename: string; caption?: string };
 
 export interface RouteContext {
   sender: Sender;

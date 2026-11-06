@@ -52,12 +52,13 @@ export type DraftPayload =
   | { kind: 'stock_return'; party?: string; lines: StockOutLine[] }
   | { kind: 'profile_update'; field: ProfileField; value: string | null; stateCode?: string }
   | { kind: 'staff_add'; phone: string; name?: string }
-  | { kind: 'support_request' };
+  | { kind: 'support_request' }
+  | import('./itemImport.js').ImportPayload;
 
 export interface StockOutLine { itemId: string; name: string; unit: string; qty: string; valuePaise: number }
 
 export const ACTION_FOR: Record<DraftPayload['kind'], string> = {
-  invoice: 'invoice', quotation: 'quotation', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return', profile_update: 'query', staff_add: 'staff_add', support_request: 'query'
+  invoice: 'invoice', quotation: 'quotation', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return', profile_update: 'query', staff_add: 'staff_add', support_request: 'query', item_import: 'bulk_import'
 };
 
 export const PROFILE_LABEL: Record<ProfileField, string> = { gstin: 'GSTIN', address: 'Address', upi: 'UPI ID', name: 'Shop name', phone: 'Shop phone', email: 'Email' };
@@ -76,7 +77,7 @@ export async function openForReturn(tx: Tx, itemId: string, party: string | unde
 
 /** Reading a bill photo or PDF costs more than typing (the AI image read is our costliest step). */
 export const actionFor = (p: DraftPayload): string =>
-  p.kind === 'purchase' && p.source && p.source !== 'typed' ? 'bill_read' : ACTION_FOR[p.kind];
+  p.kind === 'purchase' && p.source && p.source !== 'typed' ? 'bill_read' : p.kind === 'item_import' ? p.action : ACTION_FOR[p.kind];
 
 export type Built = { ok: true; payload: DraftPayload; summary: string; cost: number; balance: number } | { ok: false; reply: string };
 
@@ -289,6 +290,8 @@ export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Bu
     const notes: string[] = [];
     switch (intent.field) {
       case 'gstin': {
+        // Confirmed at sign-up: a shop without one may add it once; changing or removing goes through AutoCraft
+        if (cur.gstin) return fail(`Your GSTIN ${cur.gstin} was confirmed at sign-up, so it can't be changed here. If it needs to change, send *support* with the new GSTIN and the reason.`);
         if (value === null) {
           if (!cur.gstin) return fail('Your shop has no GSTIN saved.');
           notes.push('New bills will be *bills of supply* with no GST. Bills already made stay as they are.');

@@ -12,12 +12,16 @@ import type { InboundMessage } from '../webhook/parse.js';
 import type { Reply } from './router.js';
 
 type Step = 'intro' | 'name' | 'gstin' | 'state' | 'upi' | 'confirm';
-interface Answers { name?: string; gstin?: string; stateCode?: string; stateName?: string; upi?: string }
+interface Answers { name?: string; gstin?: string; stateCode?: string; stateName?: string; upi?: string; extra?: boolean }
 
 const text = (t: string): Reply => ({ kind: 'text', text: t });
 const buttons = (t: string, b: Array<[string, string]>): Reply => ({ kind: 'buttons', text: t, buttons: b.map(([id, title]) => ({ id, title })) });
 
-const INTRO = '👋 Welcome to *AutoCraft Shop Assistant*\n\nMake GST bills and quotations, track stock and purchases, and read supplier bills from a photo, all here on WhatsApp.\n\n🎁 *100 free credits* to start (1 credit = ₹1). Takes 1 minute.';
+const PITCH = '👋 Welcome to *AutoCraft Shop Assistant*\n\nMake GST bills and quotations, track stock and purchases, and read supplier bills from a photo, all here on WhatsApp.';
+const intro = (bonus: number | null) => PITCH + (bonus
+  ? `\n\n🎁 *${bonus} free credits* to start (1 credit = ₹1). Takes 1 minute.`
+  : '\n\nWelcome back! This number has already had its welcome credits, so the new shop starts at 0 credits; send *recharge* after setup. Takes 1 minute.');
+const ASK_GSTIN_EXTRA = "What is the new shop's GSTIN?\n\nA second shop on the same number needs its own GSTIN. (A shop without GSTIN needs a different WhatsApp number.)";
 const ASK_NAME = "What is your shop's name? (as it should appear on your bills)";
 const ASK_GSTIN = 'Do you have a GSTIN? Send it here, or tap *No GSTIN* if your shop is not registered for GST.\n\n_You can add it later too._';
 const ASK_STATE = 'Which state is your shop in? (e.g. *Telangana*)';
@@ -56,6 +60,34 @@ function summary(a: Answers): string {
     `• UPI: ${a.upi ?? 'not set'}`;
 }
 
+async function bonusFor(tx: Tx, phone: string, gstin?: string): Promise<number | null> {
+  const { rows: [r] } = await tx.query(
+    "select app.welcome_available($1, $2) as ok, (select value::text::int from platform_settings where key = 'signup_bonus_credits') as n", [phone, gstin ?? null]);
+  return r.ok && r.n > 0 ? r.n : null;
+}
+
+/** "add shop": the owner of shops that all have a GSTIN starts the same questions for one more shop. */
+export async function startExtraShop(tx: Tx, phone: string): Promise<Reply[]> {
+  // Any GSTIN stands in for the new one here: the question is whether all current shops have one
+  const { rows: [r] } = await tx.query('select app.can_join_shop($1, $2) as ok', [phone, 'NEW-SHOP-GSTIN']);
+  if (!r.ok) {
+    return [text('This number is in a shop without a GSTIN, so it can\'t open another shop.\n\n' +
+      'One number can have several shops only when each shop has its own GSTIN. Use a different WhatsApp number for the new shop, ' +
+      'or send *support* if your current shop now has a GSTIN.')];
+  }
+  await tx.query(
+    `insert into signup_sessions (phone, step, answers, expires_at) values ($1, 'name', $2, now() + interval '24 hours')
+     on conflict (phone) do update set step = excluded.step, answers = excluded.answers, expires_at = excluded.expires_at`,
+    [phone, JSON.stringify({ extra: true })]);
+  return [text('🏬 *Open another shop*\n\nYou will own it from this same number and can switch between shops any time with *switch shop*. Send *cancel* to stop.\n\n' + ASK_NAME)];
+}
+
+/** Is this number in the middle of opening another shop? */
+export async function extraShopPending(tx: Tx, phone: string): Promise<boolean> {
+  const { rowCount } = await tx.query("select 1 from signup_sessions where phone = $1 and expires_at > now() and (answers->>'extra')::boolean", [phone]);
+  return Boolean(rowCount);
+}
+
 export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Promise<Reply[]> {
   const { rows: [s] } = await tx.query(
     'select step, answers, expires_at < now() as expired from signup_sessions where phone = $1 for update', [phone]);
@@ -65,42 +97,54 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
     [phone, step, JSON.stringify(a)]);
 
   if (said(m, /^(cancel|stop|exit|quit)$/) || id(m) === 'NOTNOW') {
+    const wasExtra = Boolean((s?.answers as Answers | undefined)?.extra);
     await tx.query('delete from signup_sessions where phone = $1', [phone]);
-    return [text('No problem. Send *Hi* any time to set up your shop.')];
+    return [text(wasExtra ? 'Stopped. No new shop was created.' : 'No problem. Send *Hi* any time to set up your shop.')];
   }
 
   const wantsStart = id(m) === 'START' || said(m, /^(start|start free|register|sign ?up|join|yes|create shop)$/);
+  const introCard = async () => buttons(intro(await bonusFor(tx, phone)), [['START', '🚀 Start'], ['NOTNOW', 'Not now']]);
   if (!s || s.expired) {
     if (wantsStart) { await save('name', {}); return [text(ASK_NAME)]; }
     await save('intro', {});
-    return [buttons(INTRO, [['START', '🚀 Start free'], ['NOTNOW', 'Not now']])];
+    return [await introCard()];
   }
 
   const a = s.answers as Answers;
+  const extra = Boolean(a.extra);
+  const gstinAsk = () => extra ? text(ASK_GSTIN_EXTRA) : buttons(ASK_GSTIN, [['SKIP', 'No GSTIN']]);
   const value = (m.text ?? '').trim();
   const skip = id(m) === 'SKIP' || said(m, /^(skip|no|none|nil|na|n\/a|no gstin|not registered|later)$/);
 
   switch (s.step as Step) {
     case 'intro':
       if (wantsStart) { await save('name', {}); return [text(ASK_NAME)]; }
-      return [buttons(INTRO, [['START', '🚀 Start free'], ['NOTNOW', 'Not now']])];
+      return [await introCard()];
 
     case 'name': {
       if (m.kind !== 'text' || value.length < 2) return [text(ASK_NAME)];
       if (value.length > 80) return [text('That is a bit long for a bill heading. Please send a shorter shop name (up to 80 characters).')];
-      await save('gstin', { name: value.replace(/\s+/g, ' ') });
-      return [buttons(ASK_GSTIN, [['SKIP', 'No GSTIN']])];
+      await save('gstin', { ...(extra ? { extra } : {}), name: value.replace(/\s+/g, ' ') });
+      return [gstinAsk()];
     }
 
     case 'gstin': {
-      if (skip) { await save('state', { ...a, gstin: undefined }); return [text(ASK_STATE)]; }
+      const orSkip = extra ? '' : ', or tap *No GSTIN*';
+      const again = (t: string) => extra ? text(t) : buttons(t, [['SKIP', 'No GSTIN']]);
+      if (skip) {
+        if (extra) return [text('A second shop on this number needs its own GSTIN. Send the GSTIN, or *cancel*. (A shop without GSTIN needs a different WhatsApp number.)')];
+        await save('state', { ...a, gstin: undefined }); return [text(ASK_STATE)];
+      }
       const g = checkGstin(value);
-      if (!g.ok) return [buttons(`That GSTIN doesn't look right: ${g.reason}. Please check and send it again, or tap *No GSTIN*.`, [['SKIP', 'No GSTIN']])];
+      if (!g.ok) return [again(`That GSTIN doesn't look right: ${g.reason}. Please check and send it again${orSkip}.`)];
       if ((await tx.query('select app.gstin_in_use($1) as used', [g.gstin])).rows[0].used) {
-        return [buttons(`${g.gstin} is already registered to a shop on AutoCraft. If it's yours, send *support* followed by a short note and we'll sort it out. Or tap *No GSTIN* to continue without it.`, [['SKIP', 'No GSTIN']])];
+        return [again(`${g.gstin} is already registered to a shop on AutoCraft. If it's yours, send *support* followed by a short note and we'll sort it out.${extra ? '' : ' Or tap *No GSTIN* to continue without it.'}`)];
+      }
+      if (!(await tx.query('select app.can_join_shop($1, $2) as ok', [phone, g.gstin])).rows[0].ok) {
+        return [text('This number already belongs to a shop without a GSTIN. One number can be in several shops only when each shop has its own GSTIN, so please use a different WhatsApp number for this shop.')];
       }
       const st = await findState(tx, g.stateCode);
-      if (!st) return [buttons(`The GSTIN starts with ${g.stateCode}, which is not a state code I know. Please check it, or tap *No GSTIN*.`, [['SKIP', 'No GSTIN']])];
+      if (!st) return [again(`The GSTIN starts with ${g.stateCode}, which is not a state code I know. Please check it${orSkip}.`)];
       const next = { ...a, gstin: g.gstin, stateCode: st.code, stateName: st.name };
       await save('upi', next);
       return [buttons(`✓ GSTIN ${g.gstin} (${st.name}).\n\n${ASK_UPI}`, [['SKIP', 'Skip']])];
@@ -125,21 +169,29 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
     }
 
     case 'confirm': {
-      if (id(m) === 'RESTART' || said(m, /^(start over|restart|edit|change)$/)) { await save('name', {}); return [text(ASK_NAME)]; }
+      if (id(m) === 'RESTART' || said(m, /^(start over|restart|edit|change)$/)) { await save('name', extra ? { extra } : {}); return [text(ASK_NAME)]; }
       if (!(id(m) === 'CREATE' || said(m, /^(create|create shop|yes|ok|confirm)$/))) {
         return [buttons(summary(a), [['CREATE', '✅ Create shop'], ['RESTART', '↩️ Start over']])];
       }
       if (a.gstin && (await tx.query('select app.gstin_in_use($1) as used', [a.gstin])).rows[0].used) {
         await save('gstin', { ...a, gstin: undefined });
-        return [buttons(`${a.gstin} was just registered to another shop. Send *support* with a short note if it's yours, or tap *No GSTIN*.`, [['SKIP', 'No GSTIN']])];
+        return [extra ? text(`${a.gstin} was just registered to another shop. Send *support* with a short note if it's yours.`)
+          : buttons(`${a.gstin} was just registered to another shop. Send *support* with a short note if it's yours, or tap *No GSTIN*.`, [['SKIP', 'No GSTIN']])];
       }
-      const { rows: [t] } = await tx.query('select app.provision_tenant($1, $2, $3, $4, $5, null, null, $6) as id',
+      if (!(await tx.query('select app.can_join_shop($1, $2) as ok', [phone, a.gstin ?? null])).rows[0].ok) {
+        await tx.query('delete from signup_sessions where phone = $1', [phone]);
+        return [text('This number already belongs to a shop. One number can be in several shops only when each shop has its own GSTIN, so please use a different WhatsApp number for this shop.')];
+      }
+      const bonus = await bonusFor(tx, phone, a.gstin);
+      await tx.query('select app.provision_tenant($1, $2, $3, $4, $5, null, null, $6) as id',
         [phone, m.profileName?.slice(0, 80) ?? null, a.name, a.stateCode, a.gstin ?? null, a.upi ?? null]);
       await tx.query('delete from signup_sessions where phone = $1', [phone]);
-      void t;
-      const { rows: [b] } = await tx.query("select value::text::int as n from platform_settings where key = 'signup_bonus_credits'");
+      const credits = bonus
+        ? `you have *${bonus} free credits*`
+        : 'this number (or GSTIN) has already had its welcome credits, so the shop starts at 0 credits. Send *recharge* to add some';
       return [
-        text(`🎉 *${a.name}* is ready! You are the owner, and you have *${b?.n ?? 100} free credits*.\n\n` +
+        text(`🎉 *${a.name}* is ready! You are the owner, and ${credits}.\n\n` +
+          (extra ? 'You are now working in this shop. Send *switch shop* to go back to your other shop.\n\n' : '') +
           'Try your first entry now:\n' +
           '📥 *bought* 50 airdopes @ 850 from Sharma Traders (adds stock)\n' +
           '🧾 *bill* Ravi 2 airdopes at 1250\n' +

@@ -12,6 +12,7 @@ import type pg from 'pg';
 import { withTenant, withoutTenant, type Tx } from '../db/tenantTx.js';
 import { istDate } from '../domain/format.js';
 import type { FileStore } from '../documents/fileStore.js';
+import { registerSettings } from './settings.js';
 
 export const LINK_MINUTES = 15;
 const SESSION_DAYS = 30;
@@ -32,6 +33,9 @@ export async function createLoginLink(tx: Tx, tenantId: string, userId: string, 
 
 const PERIODS: Record<string, (today: string) => [string, string]> = {
   today: (d) => [d, d],
+  yesterday: (d) => [addDays(d, -1), addDays(d, -1)],
+  // Monday to today
+  this_week: (d) => [addDays(d, -((new Date(d + 'T00:00:00Z').getUTCDay() + 6) % 7)), d],
   week: (d) => [addDays(d, -6), d],
   month: (d) => [d.slice(0, 8) + '01', d],
   last_month: (d) => { const f = new Date(Date.parse(d.slice(0, 8) + '01T00:00:00Z') - 86400000).toISOString().slice(0, 10); return [f.slice(0, 8) + '01', f]; },
@@ -129,7 +133,9 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
           where v.status = 'issued' and v.invoice_date between $1 and $2`, [from, to]);
       const stock = await one(
         `select coalesce(sum(greatest(s.qty_on_hand,0) * i.purchase_price_paise),0) as value, count(*)::int as items,
-                count(*) filter (where s.qty_on_hand <= i.reorder_level)::int as low
+                count(*) filter (where s.qty_on_hand > 0 and s.qty_on_hand <= i.reorder_level)::int as low,
+                count(*) filter (where s.qty_on_hand = 0)::int as out,
+                count(*) filter (where s.qty_on_hand < 0)::int as not_recorded
            from v_item_stock s join items i on i.id = s.item_id where i.active`);
       const quotes = await one(`select count(*)::int as open, coalesce(sum(total_paise),0) total from quotations where status in ('open','accepted','partly_converted')`);
       const unbilled = await one(`select count(*)::int as open, coalesce(sum(est_value_paise),0) total from stock_adjustments where status = 'open'`);
@@ -142,6 +148,13 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
         `select d::date::text as day, coalesce(sum(v.total_paise),0)::bigint as total
            from generate_series($1::date, $2::date, '1 day') d left join invoices v on v.invoice_date = d::date and v.status = 'issued'
           group by d order by d`, [from, to]);
+      const today = istDate();
+      const { rows: trend } = await tx.query(
+        `select d::date::text as day, coalesce(sum(v.total_paise),0)::bigint as total
+           from generate_series($1::date, $2::date, '1 day') d left join invoices v on v.invoice_date = d::date and v.status = 'issued'
+          group by d order by d`, [addDays(today, -29), today]);
+      const { rows: byCat } = await tx.query(
+        `select category, sum(amount_paise)::bigint as total from expenses where expense_date between $1 and $2 group by category order by 2 desc`, [from, to]);
       const { rows: top } = await tx.query(
         `select l.item_name as name, sum(l.qty)::float as qty, sum(l.taxable_paise)::bigint as taxable
            from invoice_lines l join invoices v on v.id = l.invoice_id where v.status = 'issued' and v.invoice_date between $1 and $2
@@ -152,11 +165,13 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
         purchases: { count: purchases.count, taxable: n(purchases.taxable), total: n(purchases.total) },
         expenses: { count: expenses.count, total: n(expenses.total) },
         profit_estimate: { gross: n(sales.taxable) - n(cogs.cost), net: n(sales.taxable) - n(cogs.cost) - n(expenses.total), items_without_cost: cogs.no_cost },
-        stock: { value: n(stock.value), items: stock.items, low: stock.low },
+        stock: { value: n(stock.value), items: stock.items, low: stock.low, out: stock.out, not_recorded: stock.not_recorded },
         quotes: { open: quotes.open, total: n(quotes.total) },
         unbilled: { open: unbilled.open, total: n(unbilled.total) },
         credits: { balance: n(credits.balance), expiring_30d: n(credits.expiring_30d), next_expiry: credits.next_expiry },
         daily: daily.map((d) => ({ day: d.day, total: n(d.total) })),
+        trend30: trend.map((d) => ({ day: d.day, total: n(d.total) })),
+        expense_by_category: byCat.map((c) => ({ category: c.category, total: n(c.total) })),
         top_items: top.map((t) => ({ name: t.name, qty: t.qty, taxable: n(t.taxable) }))
       };
     });
@@ -166,9 +181,13 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
   const LISTS: Record<string, { sql: string; dated: boolean }> = {
     invoices: { dated: true, sql: `select id, number, invoice_date::text as date, bill_to->>'name' as customer, customer_gstin as gstin, taxable_paise, cgst_paise + sgst_paise + igst_paise as gst_paise, total_paise, status, payment_status, (pdf_file_id is not null) as has_pdf from invoices where invoice_date between $1 and $2 order by invoice_date desc, number desc` },
     quotations: { dated: true, sql: `select id, number, quote_date::text as date, valid_until::text as valid_until, doc_title, bill_to->>'name' as customer, total_paise, status, (pdf_file_id is not null) as has_pdf from quotations where quote_date between $1 and $2 order by quote_date desc, number desc` },
-    purchases: { dated: true, sql: `select p.id, p.entry_date::text as date, coalesce(p.supplier_name, s.name) as supplier, p.bill_no, p.bill_date::text as bill_date, p.taxable_paise, p.gst_paise, p.total_paise, p.source from purchases p left join parties s on s.id = p.supplier_id where p.entry_date between $1 and $2 order by p.entry_date desc, p.created_at desc` },
+    purchases: { dated: true, sql: `select p.id, p.entry_date::text as date, coalesce(p.supplier_name, s.name) as supplier, p.bill_no, p.bill_date::text as bill_date, (select count(*)::int from purchase_lines l where l.purchase_id = p.id) as lines, p.taxable_paise, p.gst_paise, p.total_paise, p.source from purchases p left join parties s on s.id = p.supplier_id where p.entry_date between $1 and $2 order by p.entry_date desc, p.created_at desc` },
     expenses: { dated: true, sql: `select id, expense_date::text as date, category, amount_paise, mode, paid_to, note from expenses where expense_date between $1 and $2 order by expense_date desc, created_at desc` },
-    stock: { dated: false, sql: `select i.id, i.name, i.unit, i.hsn, i.gst_rate::float as gst_rate, s.qty_on_hand::float as qty, i.reorder_level::float as reorder_level, i.purchase_price_paise, i.sale_price_paise, round(greatest(s.qty_on_hand,0) * i.purchase_price_paise)::bigint as value_paise, (s.qty_on_hand <= i.reorder_level) as low from v_item_stock s join items i on i.id = s.item_id where i.active order by i.name` },
+    stock: { dated: false, sql: `select i.id, i.name, i.sku_code as sku, i.unit, i.hsn, i.gst_rate::float as gst_rate, s.qty_on_hand::float as qty, i.reorder_level::float as reorder_level, i.purchase_price_paise, i.sale_price_paise,
+        round(greatest(s.qty_on_hand,0) * case when i.purchase_price_paise > 0 then i.purchase_price_paise else i.sale_price_paise end)::bigint as value_paise,
+        case when s.qty_on_hand < 0 then 'not_recorded' when s.qty_on_hand = 0 then 'out' when s.qty_on_hand <= i.reorder_level then 'low' else 'ok' end as status,
+        (s.last_movement_at at time zone 'Asia/Kolkata')::date::text as last_movement
+      from v_item_stock s join items i on i.id = s.item_id where i.active order by i.name` },
     unbilled: { dated: false, sql: `select a.id, a.adj_date::text as date, i.name as item, a.qty::float as qty, a.reason, a.party_name, a.est_value_paise, a.status from stock_adjustments a join items i on i.id = a.item_id order by (a.status = 'open') desc, a.adj_date desc limit 500` },
     credits: { dated: false, sql: `select id, created_at, kind, delta, balance_after, action_code, note from credit_ledger order by id desc limit 500` }
   };
@@ -190,6 +209,8 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
       return csv(out);
     });
   }
+
+  registerSettings(app, { pool, fileStore: deps.fileStore, auth });
 
   app.get('/api/credits/lots', { preHandler: auth }, async (req) => inShop(req, async (tx) => ({
     rows: (await tx.query(`select source, credits_granted, credits_remaining, expires_at, created_at from credit_lots where credits_remaining > 0 order by expires_at`)).rows

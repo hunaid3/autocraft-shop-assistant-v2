@@ -25,7 +25,10 @@ export async function checkStaffAdd(tx: Tx, tenantId: string, botPhone: string |
   if (botPhone && phone === botPhone) return { error: "That's this bot's own number." };
   const others = (await tx.query('select tenant_id, role from app.resolve_sender($1)', [phone])).rows;
   if (others.some((o) => o.tenant_id === tenantId)) return { error: `${shown(phone)} is already in your shop. Type *staff* to see everyone.` };
-  if (others.length) return { error: `${shown(phone)} already belongs to another shop on AutoCraft. One number in two shops isn't supported yet.` };
+  if (others.length) {
+    const ok = (await tx.query('select app.can_join_shop($1, (select gstin from tenants where id = $2)) as ok', [phone, tenantId])).rows[0].ok;
+    if (!ok) return { error: `${shown(phone)} already belongs to another shop on AutoCraft. One number can be in two shops only when both shops have a GSTIN.` };
+  }
   const { rows: [{ n, waiting }] } = await tx.query(
     `select count(*)::int as n, count(*) filter (where m.status = 'invited' and u.phone = $1)::int as waiting
        from memberships m join users u on u.id = m.user_id where m.status in ('active', 'invited') and m.role = 'staff'`, [phone]);

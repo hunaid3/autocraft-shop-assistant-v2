@@ -14,6 +14,8 @@ import { enqueue } from '../queue/queue.js';
 import type { InvoicePdfPayload, QuotationPdfPayload } from '../documents/invoiceJob.js';
 
 /** A refusal the person should read, not a fault: the confirm is rolled back and they are told why. */
+import { commitImport } from './itemImport.js';
+
 export class UserError extends Error {}
 
 export interface CommitResult { reply: string; balance: number; refType: string; refId: string }
@@ -314,6 +316,11 @@ async function commitProfile(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind
   if (d.field === 'gstin' && d.value && (await tx.query('select app.gstin_in_use($1, $2) as used', [d.value, shop.id])).rows[0].used) {
     throw new UserError(`${d.value} is already registered to another shop on AutoCraft. Nothing was changed.`);
   }
+  if (d.field === 'gstin' && d.value) {
+    const { rows: [t] } = await tx.query('select gstin from tenants where id = $1', [shop.id]);
+    if (t.gstin) throw new UserError('Your GSTIN was confirmed at sign-up and can\'t be changed here. Send *support* if it needs to change. Nothing was changed.');
+    await tx.query('select app.record_welcome_gstin($1)', [d.value]);
+  }
   if (d.field === 'gstin' && d.stateCode) {
     await tx.query('update tenants set gstin = $2, state_code = $3 where id = $1', [shop.id, d.value, d.stateCode]);
   } else {
@@ -342,6 +349,10 @@ export async function commitDraft(tx: Tx, shop: Shop, payload: DraftPayload, cos
       return { refType: 'membership', refId: r.membershipId, balance, reply: r.reply + creditsLine(cost, balance) };
     }
     case 'support_request': throw new UserError('Send your problem as a message; nothing to confirm.');
+    case 'item_import': {
+      const r = await commitImport(tx, shop.id, payload, cost, userId);
+      return { refType: 'item_import', refId: r.refId, balance: r.balance, reply: r.reply };
+    }
     case 'stock_return': return commitStockReturn(tx, shop, payload, cost, userId);
   }
 }

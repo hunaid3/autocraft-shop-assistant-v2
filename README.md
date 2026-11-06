@@ -105,7 +105,7 @@ Phase 2, slice 1 (core loop):
       the 24-hour window) and to support@autocraft-solutions.com via SES (`SES_FROM`, task role may only send
       from that address). Max 5 a day per number.
 - [x] **Item-upload prices set:** 10 credits for a file under 10 items (`bulk_import_small`), 25 otherwise
-      (`bulk_import`), per file. The upload itself is next.
+      (`bulk_import`), per file.
 - [x] **Dashboard** (Phase 5): the owner sends *dashboard* → one-time link (15 min) → `/api/session` gives a
       30-day session (hash only, `dashboard_sessions`). Read-only API in the engine under `/api` (routed by API
       Gateway `ANY /api/{proxy+}`), every query through `withTenant` so RLS applies: summary (sales, GST, profit
@@ -122,7 +122,25 @@ Phase 2, slice 1 (core loop):
       WhatsApp. Expired/cancelled links are closed. Max 5 open links a day. Keys from Vault: `razorpay_key_id`,
       `razorpay_key_secret`. Owners get an in-chat reminder (with a Recharge button) when credits expire within 7
       days, at most every 3 days; `app.run_daily_credit_expiry()` runs hourly and expires lots once a day.
-- [ ] Next: bulk item upload, OTP login for later dashboard visits (needs an authentication template)
+- [x] **Credits last 24 months** (`credit_validity_months` = 24; lots valid on 6 Nov 2026 were extended to 24 months).
+- [x] **Welcome credits once** per WhatsApp number and per GSTIN, ever: sha256 fingerprints in `welcome_grants`
+      (no tenant link, so they survive account closure). Re-registrations start at 0 credits with a clear message.
+- [x] **One number, several shops** only when every shop has its own GSTIN (a shop without GSTIN can't share its
+      number). Enforced by `app.can_join_shop` and the `memberships_one_number_rule` trigger (AC020). *add shop*
+      opens another shop (GSTIN required, no welcome credits); *switch shop* lists them (`users.active_tenant_id`).
+      Staff can be in two shops on the same terms; *Hi* shows a waiting invite.
+- [x] **GSTIN locked after sign-up:** a shop without one may add it once on WhatsApp; changes go through support.
+- [x] **Item list upload:** an Excel (.xlsx) or CSV file on WhatsApp (owner) → header mapping card (many
+      spellings: MRP, HSN/SAC, Opening stock…), new vs known items, cost → Confirm adds/updates items and sets
+      stock (`stock_ledger` movement `import`). Bad rows come back as a CSV with the reason. *template* sends a
+      ready sheet. Up to 3 MB / 2000 rows; .xls asks for .xlsx/CSV. Recorded in `item_imports`.
+- [x] **Dashboard in the V1 look** with Yesterday/This week periods, credits tile and tab (valid lots, history),
+      quotes tab, stock status (low / out / not recorded) and last movement, CSV on every list, admin tab.
+- [x] **Settings tab** (owner): bill details, logo upload (PNG/JPG ≤ 2 MB), bank details, terms, invoice prefix
+      (1–3 characters; changeable only before the financial year's first invoice), quotation prefix/title/validity,
+      default GST, prices include GST, stock shortfall, low-stock default. No GSTIN or state edit. Every change is
+      in `audit_log` (`settings.update`, field names only).
+- [ ] Next: OTP login for later dashboard visits (needs an authentication template)
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

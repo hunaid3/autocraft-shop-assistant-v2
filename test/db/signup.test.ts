@@ -116,9 +116,10 @@ describe('shop details after sign-up', () => {
     expect(prof).toContain('Address: 12-3, Abids Road, Hyderabad 500001');
     expect(prof).toContain('UPI: noor@ybl');
     expect(prof).toContain('Phone: +919876543210');
-    expect(await say('remove gstin', p4)).toContain('bills of supply');
-    await say('yes', p4);
-    expect((await shopOf(p4))[0].gstin).toBeNull();
+    // Once set, the GSTIN is locked: changing or removing it goes through AutoCraft
+    expect(await say('remove gstin', p4)).toContain('confirmed at sign-up');
+    expect(await say(`update gstin ${GSTIN_MH.slice(0, 2)}AAACR5055K1Z5`, p4)).toContain('send *support*');
+    expect((await shopOf(p4))[0].gstin).toBe(GSTIN_MH);
     expect((await shopOf(p4))[0].balance).toBe(100); // profile changes are free
   });
 

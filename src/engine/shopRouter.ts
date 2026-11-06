@@ -19,7 +19,10 @@ import { buildDraft, resolveDraft, saveDraft, takePendingDraft } from './drafts.
 import { commitDraft, UserError } from './commit.js';
 import { understand } from './parse.js';
 import { HOW_TO, profileText, runQuery } from './queries.js';
-import { signupRoute } from './signup.js';
+import { extraShopPending, signupRoute, startExtraShop } from './signup.js';
+import { SHOP_BUTTON, shopPicker, switchShop } from './shops.js';
+import { importCard, prepareImport, prepareTemplate, templateReplies, type PreparedImport } from './itemImport.js';
+import { isSpreadsheet } from '../import/items.js';
 import { checkStaffAdd, inviteRoute, listStaff, removeStaff, staffCard } from './staff.js';
 import { helpMenu, helpTopic, type HelpTopic } from './help.js';
 import { ASK_PROBLEM, captureSupport } from './support.js';
@@ -51,7 +54,9 @@ type Prepared =
   | { bill: BillReading; file: BillFile }
   | { reply: string }
   | { payLink: PreparedLink }
-  | { support: { text: string; file?: { path: string; mime: string; size: number } } };
+  | { support: { text: string; file?: { path: string; mime: string; size: number } } }
+  | { import: PreparedImport }
+  | { template: { path: string; size: number } };
 
 const text = (t: string): Reply[] => [{ kind: 'text', text: t }];
 
@@ -88,7 +93,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     if (!m.media?.id) return { reply: "I couldn't open that file. Please send it again." };
     const declared = m.media.mimeType ?? '';
     if (m.kind === 'document' && declared !== 'application/pdf') {
-      return { reply: 'I can read bills sent as a photo or a PDF. Excel item lists are coming with bulk upload.' };
+      return { reply: 'I can read bills sent as a photo or a PDF, and item lists as Excel (.xlsx) or CSV. Send *template* for the item sheet.' };
     }
     let file: { bytes: Buffer; mime: string };
     try {
@@ -152,7 +157,33 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       // A waiting staff invite comes before setting up a shop of their own
       return (await inviteRoute(tx, sender.phone, message.kind === 'button' ? message.buttonId : undefined, message.text ?? '')) ?? signupRoute(tx, sender.phone, message);
     }
+    if (sender.kind === 'multiple') {
+      const pick = message.kind === 'button' ? SHOP_BUTTON.exec(message.buttonId ?? '') : null;
+      if (pick) return switchShop(tx, sender.phone, sender.memberships, pick[1]!.toLowerCase());
+      return [shopPicker(sender.memberships)];
+    }
     if (sender.kind !== 'member') return phase1Router(ctx);
+    // Opening another shop: the sign-up questions take these messages until done or cancelled
+    if (['text', 'button'].includes(message.kind) && await extraShopPending(tx, sender.phone)) return signupRoute(tx, sender.phone, message);
+    const allShops = sender.shops ?? [sender];
+    const pickShop = message.kind === 'button' ? SHOP_BUTTON.exec(message.buttonId ?? '') : null;
+    if (pickShop) return switchShop(tx, sender.phone, allShops, pickShop[1]!.toLowerCase());
+    // Already in a shop and invited to another (both have a GSTIN): Hi shows the invite; Accept switches to it
+    if (['text', 'button'].includes(message.kind)) {
+      const b = message.kind === 'button' ? message.buttonId ?? '' : '';
+      const t = (message.text ?? '').trim().toLowerCase();
+      if (/^(ACCEPT|DECLINE):/i.test(b) || (!b && /^(hi|hello|accept|decline|join)$/.test(t))) {
+        const inv = (await tx.query('select tenant_id from app.pending_invites($1)', [sender.phone])).rows[0];
+        const r = inv ? await inviteRoute(tx, sender.phone, b || undefined, message.text ?? '') : null;
+        if (r) {
+          if (/^ACCEPT:/i.test(b) || /^(accept|join)$/.test(t)) {
+            await tx.query('select app.set_active_shop($1, $2)', [sender.phone, inv.tenant_id]);
+            r.push({ kind: 'text', text: 'You are now working in this shop. Send *switch shop* to go back to your other shop.' });
+          }
+          return r;
+        }
+      }
+    }
     const isMedia = message.kind === 'image' || message.kind === 'document';
     if (!isMedia && !['text', 'button'].includes(message.kind)) return phase1Router(ctx);
 
@@ -176,6 +207,13 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       if (d) await resolveDraft(tx, d.id, 'confirmed');
       return captureSupport(tx, sender, shop.id, prepared.support.text || '(photo only)', fileId);
     }
+    if (prepared && 'import' in prepared) {
+      if (sender.role !== 'owner') return text(OWNER_ONLY_TEXT);
+      const c = await importCard(tx, shop.id, sender.userId, prepared.import);
+      if (c.draft) await saveDraft(tx, shop.id, sender.userId, { ok: true, ...c.draft }, ctx.messageId ?? null);
+      return c.replies;
+    }
+    if (prepared && 'template' in prepared) return templateReplies(tx, shop.id, sender.userId, prepared.template);
     if (prepared && 'logo' in prepared) {
       const { rows: [f] } = await tx.query(
         `insert into files (tenant_id, kind, path, mime, size_bytes, created_by) values ($1, 'logo', $2, $3, $4, $5)
@@ -236,6 +274,15 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       }
       case 'staff_list':
         return listStaff(tx);
+      case 'switch_shop':
+        if (!sender.otherShops?.length) {
+          return text(`This number works in one shop: *${sender.tenantName}*.\n\nTo open another shop with its own GSTIN on this number, send *add shop*.`);
+        }
+        return [shopPicker(allShops, sender.tenantName)];
+      case 'add_shop':
+        return startExtraShop(tx, sender.phone);
+      case 'import_help':
+        return text('📦 Send your item list as an Excel (.xlsx) or CSV file here. Column titles in the first row: *Item name*, Unit, HSN, GST %, Buy price, Sell price, Stock qty.');
       case 'recharge':
         return packMenu(tx);
       case 'dashboard': {
@@ -325,6 +372,14 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
   const prepare = async (c: PrepareContext): Promise<Prepared | undefined> => {
     if (c.sender.kind !== 'member') return undefined;
     const m = c.message;
+    const sender = c.sender;
+    // Opening another shop: plain answers, nothing to read ahead
+    if ((m.kind === 'text' || m.kind === 'button') && await withTenant(c.pool, sender.tenantId, (tx) => extraShopPending(tx, sender.phone))) return undefined;
+    if (m.kind === 'document' && isSpreadsheet(m.media?.mimeType, m.media?.filename)) {
+      if (sender.role !== 'owner') return { reply: OWNER_ONLY_TEXT };
+      if (!media || !m.media?.id) return { reply: "I couldn't open that file. Please send it again." };
+      return prepareImport(media, c.pool, sender.tenantId, { waMessageId: m.waMessageId, mediaId: m.media.id, mime: m.media.mimeType, filename: m.media.filename });
+    }
     // A pack tapped: create the Razorpay link now (an outside call, so before the transaction)
     const pack = m.kind === 'button' ? /^PACK:([a-z0-9_]+)$/i.exec(m.buttonId ?? '') : null;
     if (pack) {
@@ -363,7 +418,11 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       }
       return prepareBill(c, c.sender.tenantId);
     }
-    if (m.kind === 'text') return { intent: await understand(m.text ?? '', parser, await parseContext(c, c.sender.tenantId)) };
+    if (m.kind === 'text') {
+      const intent = await understand(m.text ?? '', parser, await parseContext(c, c.sender.tenantId));
+      if (intent.type === 'import_help' && media) return { template: await prepareTemplate(media.fileStore, sender.tenantId) };
+      return { intent };
+    }
     return undefined;
   };
 

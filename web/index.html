@@ -3,93 +3,158 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Shop Khata · AutoCraft</title>
+<title>Shop Dashboard · AutoCraft</title>
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#9E1B32">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Hind:wght@400;500;600&family=Martel:wght@400;700;800&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#1F2A44">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="binding" aria-hidden="true"></div>
-<header class="top">
-  <div class="shop">
-    <h1 id="shopName">Your shop</h1>
-    <p id="shopMeta" class="muted"></p>
-  </div>
-  <button id="logout" class="link" hidden>Sign out</button>
-</header>
-
-<main id="app" class="page">
-  <section id="signin" class="signin" hidden>
-    <h2>Open your shop's khata</h2>
-    <p>Send <b>dashboard</b> to the AutoCraft WhatsApp number. You'll get a link that opens this page, signed in to your shop.</p>
-    <a class="btn" href="https://wa.me/917013539950?text=dashboard">Send “dashboard” on WhatsApp</a>
-    <p id="signinError" class="error" role="alert"></p>
-  </section>
-
-  <section id="ledger" hidden>
-    <nav class="periods" aria-label="Period">
-      <button data-period="today">Today</button>
-      <button data-period="week">7 days</button>
-      <button data-period="month" aria-pressed="true">This month</button>
-      <button data-period="last_month">Last month</button>
-      <button data-period="fy">This FY</button>
-    </nav>
-
-    <div class="grid">
-      <div class="col">
-        <section class="total" aria-live="polite">
-          <p class="caption" id="totalCaption">Sales this month</p>
-          <p class="amount" id="salesTotal">—</p>
-          <p class="muted" id="salesSub"></p>
-        </section>
-
-        <section class="sheet">
-          <h2>Profit and loss</h2>
-          <dl class="rows" id="pl"></dl>
-          <p class="note" id="plNote"></p>
-        </section>
-
-        <section class="sheet">
-          <h2>Day by day</h2>
-          <div id="chart" class="chart" role="img" aria-label="Sales per day"></div>
-        </section>
+<header>
+  <div class="wrap">
+    <div class="head-row">
+      <div>
+        <h1 id="biz">AutoCraft Shop Dashboard</h1>
+        <div class="sub" id="updated">Loading…</div>
       </div>
-
-      <div class="col">
-        <section class="sheet">
-          <h2>Right now</h2>
-          <dl class="rows" id="now"></dl>
-        </section>
-        <section class="sheet">
-          <h2>Best sellers</h2>
-          <ol class="rows plain" id="top"></ol>
-        </section>
+      <div class="head-actions">
+        <span class="credit-chip" id="creditChip" hidden></span>
+        <button class="ghost" id="logout" hidden>Sign out</button>
       </div>
     </div>
+    <div class="periods" id="periods" hidden>
+      <button data-p="today">Today</button>
+      <button data-p="yesterday">Yesterday</button>
+      <button data-p="this_week">This week</button>
+      <button data-p="month" class="on">This month</button>
+      <button data-p="last_month">Last month</button>
+      <button data-p="fy">This FY</button>
+    </div>
+  </div>
+</header>
 
-    <section class="sheet book">
-      <div class="tabs" role="tablist" aria-label="Records">
-        <button role="tab" data-list="invoices" aria-selected="true">Bills</button>
-        <button role="tab" data-list="quotations">Quotes</button>
-        <button role="tab" data-list="purchases">Purchases</button>
-        <button role="tab" data-list="expenses">Expenses</button>
-        <button role="tab" data-list="stock">Stock</button>
-        <button role="tab" data-list="unbilled">Out without bill</button>
-        <button role="tab" data-list="credits">Credits</button>
-        <button role="tab" data-list="admin" id="adminTab" hidden>AutoCraft</button>
-      </div>
-      <div class="listbar">
-        <p id="listCaption" class="muted"></p>
-        <button id="export" class="btn small">Download Excel (CSV)</button>
-      </div>
-      <div id="list" role="tabpanel"></div>
-    </section>
+<div id="err" role="alert"></div>
+
+<section id="signin" class="wrap signin" hidden>
+  <div class="card">
+    <h2>Open your shop dashboard</h2>
+    <p>Send <b>dashboard</b> to the AutoCraft WhatsApp number. You get a link that opens this page, signed in to your shop. The link works once, within 15 minutes; this browser then stays signed in for 30 days.</p>
+    <a class="btn" href="https://wa.me/917013539950?text=dashboard">Send “dashboard” on WhatsApp</a>
+    <p class="note" id="signinError"></p>
+  </div>
+</section>
+
+<div id="loading" hidden>Loading your numbers…</div>
+
+<main class="wrap" id="app" hidden>
+  <section class="kpis" id="kpis"></section>
+
+  <div class="two">
+    <div class="card">
+      <h2>Daily sales <small>· last 30 days</small></h2>
+      <div id="chart"></div>
+      <div class="tip" id="tip">Tap a bar to see the day's total.</div>
+    </div>
+    <div class="card top">
+      <h2>Top selling items <small id="topLbl"></small></h2>
+      <div id="top"></div>
+    </div>
+  </div>
+
+  <nav class="tabs" id="tabs">
+    <button data-t="stock" class="on">Stock <span class="cnt" id="c-stock"></span></button>
+    <button data-t="invoices">Invoices <span class="cnt" id="c-invoices"></span></button>
+    <button data-t="quotations">Quotes <span class="cnt" id="c-quotations"></span></button>
+    <button data-t="purchases">Purchases <span class="cnt" id="c-purchases"></span></button>
+    <button data-t="expenses">Expenses <span class="cnt" id="c-expenses"></span></button>
+    <button data-t="unbilled">Without bill <span class="cnt" id="c-unbilled"></span></button>
+    <button data-t="credits">Credits</button>
+    <button data-t="settings">Settings</button>
+    <button data-t="admin" id="adminTab" hidden>Admin</button>
+  </nav>
+
+  <section class="panel on" id="p-stock">
+    <div class="tools">
+      <input type="search" id="q" placeholder="Search items…" aria-label="Search items">
+      <button class="filter on" data-f="all">All</button>
+      <button class="filter" data-f="attention">Needs attention</button>
+      <button class="csv" data-csv="stock">Download CSV</button>
+    </div>
+    <div id="stockTbl"></div>
+    <div class="note">Value is at purchase cost (selling price where no cost is known). “Not recorded” means the item was sold before its stock was entered: send <b>stock count</b> on WhatsApp to fix it. To add many items at once, send an Excel or CSV file on WhatsApp (<b>template</b> for a ready sheet).</div>
   </section>
+  <section class="panel" id="p-invoices"><div class="tools"><span class="muted small" id="invLbl"></span><button class="csv" data-csv="invoices">Download CSV</button></div><div id="invTbl"></div></section>
+  <section class="panel" id="p-quotations"><div class="tools"><span class="muted small" id="quoLbl"></span><button class="csv" data-csv="quotations">Download CSV</button></div><div id="quoTbl"></div></section>
+  <section class="panel" id="p-purchases"><div class="tools"><span class="muted small" id="purLbl"></span><button class="csv" data-csv="purchases">Download CSV</button></div><div id="purTbl"></div></section>
+  <section class="panel" id="p-expenses"><div class="tools"><span class="muted small" id="expLbl"></span><button class="csv" data-csv="expenses">Download CSV</button></div><div id="expCats"></div><div id="expTbl" class="gap"></div></section>
+  <section class="panel" id="p-unbilled"><div class="tools"><span class="muted small">All dates</span><button class="csv" data-csv="unbilled">Download CSV</button></div><div id="uoTbl"></div>
+    <div class="note">Stock that left without an invoice and hasn’t been billed or returned yet comes first.</div></section>
+  <section class="panel" id="p-credits">
+    <div class="card first" id="creditBox"></div>
+    <h3>Credits that are still valid</h3>
+    <div id="lotTbl"></div>
+    <div class="tools"><h3 class="grow">History</h3><button class="csv" data-csv="credits">Download CSV</button></div>
+    <div id="ledTbl"></div>
+  </section>
+  <section class="panel" id="p-settings">
+    <form id="settingsForm" class="settings" novalidate>
+      <div class="card first">
+        <h2>On your bills</h2>
+        <div class="grid">
+          <label>Shop name<input name="name" maxlength="80" required></label>
+          <label>Legal name <small>(optional)</small><input name="legal_name" maxlength="120"></label>
+          <label class="wide">Address<textarea name="address" rows="2" maxlength="300"></textarea></label>
+          <label>Phone on bill<input name="phone" inputmode="tel" placeholder="98765 43210"></label>
+          <label>Email<input name="email" type="email" maxlength="120"></label>
+          <label>UPI ID <small>(adds a pay QR)</small><input name="upi_id" placeholder="shopname@okhdfcbank"></label>
+          <div class="locked"><span class="lbl">GSTIN</span><b id="gstinRO"></b><small>Confirmed at sign-up. To change it, send <b>support</b> on WhatsApp.</small></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Logo</h2>
+        <div class="logo-row">
+          <div class="logo-box" id="logoBox"><span class="muted small">No logo</span></div>
+          <div>
+            <input type="file" id="logoFile" accept="image/png,image/jpeg" hidden>
+            <button type="button" class="pdf" id="logoPick">Upload PNG or JPG</button>
+            <button type="button" class="pdf" id="logoRemove" hidden>Remove</button>
+            <div class="note">Up to 2 MB. Shows on new bills and quotations.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Bank details <small>· printed under the bill total</small></h2>
+        <div class="grid">
+          <label>Account name<input name="bank_account_name" maxlength="80"></label>
+          <label>Bank<input name="bank_name" maxlength="80"></label>
+          <label>Account number<input name="bank_account_no" inputmode="numeric"></label>
+          <label>IFSC<input name="bank_ifsc" placeholder="HDFC0001234"></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Numbering and terms</h2>
+        <div class="grid">
+          <label>Invoice prefix <small>(1 to 3 letters)</small><input name="invoice_prefix" maxlength="3"><span class="note" id="prefixNote"></span></label>
+          <label>Quotation prefix<input name="quotation_prefix" maxlength="8"></label>
+          <label>Call quotations<select name="quotation_title"><option value="quotation">Quotation</option><option value="estimate">Estimate</option></select></label>
+          <label>Quotes valid for (days)<input name="quotation_validity_days" type="number" min="1" max="365"></label>
+          <label class="wide">Terms on bills <small>(one per line, up to 6)</small><textarea name="invoice_terms" rows="3"></textarea></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>How the shop works</h2>
+        <div class="grid">
+          <label>Default GST rate<select name="default_gst_rate" id="gstSel"></select></label>
+          <label>Prices you type<select name="prices_include_gst"><option value="false">are before GST</option><option value="true">include GST</option></select></label>
+          <label>Billing more than stock<select name="stock_shortfall"><option value="allow">allow, and warn</option><option value="block">block</option></select></label>
+          <label>Low stock alert at<input name="low_stock_default" type="number" min="0" step="any"></label>
+        </div>
+      </div>
+      <div class="savebar"><span id="saveMsg" class="small" role="status"></span><button class="btn" type="submit">Save changes</button></div>
+    </form>
+  </section>
+  <section class="panel" id="p-admin"><div id="adminBox"></div></section>
 </main>
-<footer class="foot muted">Your data stays in India (Mumbai). Questions? Send <b>support</b> on WhatsApp.</footer>
-<script src="/app.js" defer></script>
+<footer>AutoCraft Shop Assistant · figures update every time you open or refresh this page · <a href="https://autocraft-solutions.com">autocraft-solutions.com</a></footer>
+<script src="/app.js"></script>
 </body>
 </html>

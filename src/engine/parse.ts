@@ -86,6 +86,9 @@ export function fixedRules(text: string): Intent | null {
   if (/^(help|menu|\?|commands|how|options)$/.test(t)) return { type: 'help' };
   if (/^(recharge|top ?up|buy credits|add credits|credits? (?:khatam|over|finished)|recharge credits|pay|payment)$/.test(t)) return { type: 'recharge' };
   if (/^(dashboard|my dashboard|dashboard link|reports? link|web login|login|open dashboard)$/.test(t)) return { type: 'dashboard' };
+  if (/^(switch shop|change shop|switch|my shops|shops|select shop|choose shop|other shop|switch to other shop)$/.test(t)) return { type: 'switch_shop' };
+  if (/^(add shop|add (?:another|new|a|one more) shop|new shop|open (?:another|new|a) shop|another shop|second shop|register (?:another|new) shop)$/.test(t)) return { type: 'add_shop' };
+  if (/^(item template|import template|upload template|excel template|template|bulk upload|upload items|import items|item upload|items upload|import|add items from excel|excel upload|upload excel)$/.test(t)) return { type: 'import_help' };
   const ht = /^(?:help|menu)\s+(?:with\s+|on\s+)?([a-z ]{3,20})$/.exec(t);
   if (ht) { const topic = topicFromText(ht[1]!); if (topic) return { type: 'help_topic', topic }; }
   if (/^(hi|hii+|hello|hey|namaste|namaskar|salaam|salam|assalamu ?alaikum|good (morning|afternoon|evening))$/.test(t)) return { type: 'greeting' };

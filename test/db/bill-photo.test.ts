@@ -152,10 +152,10 @@ describe('a bill PDF', () => {
     expect(body(await send(S.ownerPhone, document(S.ownerPhone, id)))).toContain("couldn't open that PDF");
   });
 
-  it('a spreadsheet is not read as a bill', async () => {
+  it('a spreadsheet is not read as a bill (it goes to item upload)', async () => {
     const id = photo(Buffer.from('xlsx'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     expect(body(await send(S.ownerPhone, document(S.ownerPhone, id, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'items.xlsx'))))
-      .toContain('photo or a PDF');
+      .toContain("couldn't open that file");
   });
 });
 

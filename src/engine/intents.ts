@@ -63,6 +63,9 @@ export type Intent =
   | { type: 'staff_list' }
   | { type: 'dashboard' }
   | { type: 'recharge' }
+  | { type: 'switch_shop' }
+  | { type: 'add_shop' }
+  | { type: 'import_help' }
   | { type: 'help_topic'; topic: import('./help.js').HelpTopic }
   | { type: 'support'; problem?: string }
   | { type: 'staff_remove'; who: string }

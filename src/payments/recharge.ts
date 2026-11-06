@@ -22,7 +22,7 @@ export async function packMenu(tx: Tx): Promise<Reply[]> {
     kind: 'buttons',
     text: `💳 *Recharge credits* (1 credit = ₹1; you have ${w?.balance ?? 0})\n\n` +
       packs.map((p) => `• ${p.name}: ₹${formatInr(Number(p.price_paise))} → *${p.credits} credits*${p.credits * 100 > Number(p.price_paise) ? ` (${p.credits - Number(p.price_paise) / 100} extra)` : ''}`).join('\n') +
-      '\n\nCredits last 12 months from the day you buy them; older credits are used first, so recharging early never wastes any. Pay by UPI, card or netbanking.',
+      '\n\nCredits last 24 months from the day you buy them; older credits are used first, so recharging early never wastes any. Pay by UPI, card or netbanking.',
     buttons: packs.map((p) => ({ id: 'PACK:' + p.code, title: `₹${formatInr(Number(p.price_paise))}` }))
   }];
 }
@@ -107,5 +107,5 @@ export async function expiryNudge(tx: Tx, tenantId: string): Promise<Reply | nul
        from credit_lots l where l.credits_remaining > 0 and l.expires_at < now() + interval '7 days' and l.expires_at > now()`, [tenantId]);
   if (!r?.n || (r.nudged && Date.now() - new Date(r.nudged).getTime() < 3 * 86400_000)) return null;
   await tx.query('update tenant_settings set credit_nudge_at = now() where tenant_id = $1', [tenantId]);
-  return { kind: 'buttons', text: `⏳ ${r.n} of your credits expire on ${date(r.at)}. They're used first, so use them before then. Recharge any time; new credits last 12 months.`, buttons: [{ id: 'RECHARGE', title: '💳 Recharge' }] };
+  return { kind: 'buttons', text: `⏳ ${r.n} of your credits expire on ${date(r.at)}. They're used first, so use them before then. Recharge any time; new credits last 24 months.`, buttons: [{ id: 'RECHARGE', title: '💳 Recharge' }] };
 }
