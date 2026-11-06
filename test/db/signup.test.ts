@@ -139,3 +139,18 @@ describe('shop details after sign-up', () => {
     expect(await say('update upi x@ybl', staff)).toContain('Only the owner');
   });
 });
+
+describe('first entry of a new shop (reported 6 Nov)', () => {
+  it('"Add 50 cables @ 100 rs to the stock, selling price is 150rs with 18% gst" adds stock with cost, selling price and GST', async () => {
+    const p5 = randomPhone();
+    await say('start', p5); await say('Cable House', p5); await tap('SKIP', 'No GSTIN', p5); await say('Telangana', p5); await tap('SKIP', 'Skip', p5); await say('yes', p5);
+    const card = await say('Add 50 cables @ 100 rs to the stock, selling price is 150rs with 18% gst', p5);
+    expect(card).toContain('cables × 50 @ ₹100 + 18% GST · sell at ₹150');
+    expect(await say('yes', p5)).toContain('saved');
+    const [t] = await shopOf(p5);
+    const { rows: [i] } = await admin.query(
+      'select i.purchase_price_paise, i.sale_price_paise, i.gst_rate, s.qty_on_hand from items i join v_item_stock s on s.item_id = i.id where i.tenant_id = $1', [t.id]);
+    expect(i).toMatchObject({ purchase_price_paise: '10000', sale_price_paise: '15000', gst_rate: '18.00' });
+    expect(Number(i.qty_on_hand)).toBe(50);
+  });
+});

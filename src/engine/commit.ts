@@ -28,7 +28,7 @@ async function ensureItem(tx: Tx, tenantId: string, n: NewItem, prices: { sale?:
 }
 
 /** Fill in item ids, creating new items. Returns the names created. */
-async function ensureItems(tx: Tx, tenantId: string, lines: Array<{ itemId: string | null; newItem: NewItem | null; ratePaise?: number }>, kind: 'sale' | 'purchase' | 'count', userId: string): Promise<string[]> {
+async function ensureItems(tx: Tx, tenantId: string, lines: Array<{ itemId: string | null; newItem: NewItem | null; ratePaise?: number; salePricePaise?: number }>, kind: 'sale' | 'purchase' | 'count', userId: string): Promise<string[]> {
   const created: string[] = [];
   const made = new Map<string, string>();
   for (const l of lines) {
@@ -36,7 +36,7 @@ async function ensureItems(tx: Tx, tenantId: string, lines: Array<{ itemId: stri
     const key = normKey(l.newItem.name);
     let id = made.get(key);
     if (!id) {
-      id = await ensureItem(tx, tenantId, l.newItem, kind === 'sale' ? { sale: l.ratePaise } : kind === 'purchase' ? { purchase: l.ratePaise } : {}, userId);
+      id = await ensureItem(tx, tenantId, l.newItem, kind === 'sale' ? { sale: l.ratePaise } : kind === 'purchase' ? { purchase: l.ratePaise, sale: l.salePricePaise } : {}, userId);
       made.set(key, id);
       created.push(l.newItem.name);
     }
@@ -206,6 +206,8 @@ async function commitPurchase(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kin
       "insert into stock_ledger (tenant_id, item_id, qty_in, movement_type, ref_type, ref_id, note, created_by) values ($1,$2,$3,'purchase','purchase',$4,$5,$6)",
       [shop.id, l.itemId, l.qty, purchaseId, supplier.name, userId]);
     await tx.query('update items set purchase_price_paise = $2 where id = $1 and purchase_price_paise = 0', [l.itemId, l.ratePaise]);
+    // A selling price typed with the purchase is the owner's instruction: save it
+    if (l.salePricePaise) await tx.query('update items set sale_price_paise = $2 where id = $1', [l.itemId, l.salePricePaise]);
   }
   const balance = await debit(tx, shop.id, cost, actionFor(d), 'purchase', purchaseId, userId);
   return {

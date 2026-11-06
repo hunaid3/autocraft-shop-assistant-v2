@@ -131,3 +131,20 @@ describe('quotations', () => {
     expect(fixedRules('quote')).toEqual({ type: 'how_to', about: 'quotation' });
   });
 });
+
+describe('adding stock in plain words (reported 6 Nov)', () => {
+  it('"Add 50 cables @ 100 rs to the stock, selling price is 150rs with 18% gst" is a purchase, not a GST question', async () => {
+    const msg = 'Add 50 cables @ 100 rs to the stock, selling price is 150rs with 18% gst';
+    expect(fixedRules(msg)).toBeNull();
+    expect(await p.parse(msg, ctx)).toEqual({ type: 'purchase', party: {},
+      lines: [{ name: 'cables', qty: '50', unit: undefined, ratePaise: 10000, discountPaise: undefined, gstRate: 18, salePricePaise: 15000 }] });
+  });
+  it('other ways to say it', async () => {
+    expect(await p.parse('opening stock 20 chargers @ 300 mrp 499', ctx)).toMatchObject({ type: 'purchase', lines: [{ name: 'chargers', qty: '20', ratePaise: 30000, salePricePaise: 49900 }] });
+    expect(await p.parse('add 10 airdopes at 850 from Sharma Traders', ctx)).toMatchObject({ type: 'purchase', party: { name: 'Sharma Traders' }, lines: [{ qty: '10', ratePaise: 85000 }] });
+  });
+  it('the GST how-to still answers real questions', () => {
+    expect(fixedRules('how do I add my GST number?')).toEqual({ type: 'how_to', about: 'profile' });
+    expect(fixedRules('how to change address')).toEqual({ type: 'how_to', about: 'profile' });
+  });
+});

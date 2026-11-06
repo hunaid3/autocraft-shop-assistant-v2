@@ -33,7 +33,7 @@ const n = <T extends z.ZodTypeAny>(t: T) => t.nullable();
 // Strict-mode schema: every key present, nulls for "not said". Kept flat so the model can't nest wrongly.
 const LINE = z.object({
   name: z.string(), qty: z.string(), unit: n(z.string()),
-  rate_rupees: n(z.number()), discount_rupees: n(z.number()), gst_rate: n(z.number())
+  rate_rupees: n(z.number()), discount_rupees: n(z.number()), gst_rate: n(z.number()), sale_rate_rupees: n(z.number())
 });
 const OUT = z.object({
   type: z.enum(['help', 'greeting', 'confirm', 'cancel', 'query', 'invoice', 'purchase', 'expense', 'stock_count', 'stock_out', 'stock_return', 'quotation', 'quote_revise', 'quote_convert', 'unknown']),
@@ -63,10 +63,10 @@ export const JSON_SCHEMA = {
       type: 'array',
       items: {
         type: 'object', additionalProperties: false,
-        required: ['name', 'qty', 'unit', 'rate_rupees', 'discount_rupees', 'gst_rate'],
+        required: ['name', 'qty', 'unit', 'rate_rupees', 'discount_rupees', 'gst_rate', 'sale_rate_rupees'],
         properties: {
           name: { type: 'string' }, qty: { type: 'string' }, unit: nullable({ type: 'string' }),
-          rate_rupees: nullable({ type: 'number' }), discount_rupees: nullable({ type: 'number' }), gst_rate: nullable({ type: 'number' })
+          rate_rupees: nullable({ type: 'number' }), discount_rupees: nullable({ type: 'number' }), gst_rate: nullable({ type: 'number' }), sale_rate_rupees: nullable({ type: 'number' })
         }
       }
     },
@@ -91,6 +91,8 @@ export function systemPrompt(ctx: ParseContext, maxCatalog: number): string {
     'type:',
     '- invoice: selling to a customer ("bill", "sold", "becha", "invoice"). party_* = the customer, if named.',
     '- purchase: buying stock from a supplier ("bought", "kharida", "purchase"). party_name = supplier; bill_no if given.',
+    '  Adding stock is also a purchase ("add 50 cables @ 100 to stock", "opening stock 20 chargers", "maal aaya"); supplier may be missing.',
+    '  On purchase lines, rate_rupees = cost price; sale_rate_rupees = the selling price/MRP if they say it, else null.',
     '- expense: money paid out that is not stock (rent, salary, electricity, tea, transport). Amount in rupees.',
     '- stock_count: the person states how many they HAVE now ("stock count", "abhi 40 hai").',
     '- stock_out: stock left WITHOUT a bill. stock_out_reason: sample_demo, on_approval, damaged_lost, internal_use (used in the shop),',
@@ -122,7 +124,8 @@ function toIntent(o: Out): Intent {
   const rupees = (x: number | null) => (x === null || !Number.isFinite(x) || x < 0 ? undefined : toPaise(x.toFixed(2)));
   const lines = o.lines.map((l) => ({
     name: l.name.trim(), qty: l.qty.replace(/,/g, '').trim(), unit: l.unit ?? undefined,
-    ratePaise: rupees(l.rate_rupees), discountPaise: rupees(l.discount_rupees), gstRate: l.gst_rate ?? undefined
+    ratePaise: rupees(l.rate_rupees), discountPaise: rupees(l.discount_rupees), gstRate: l.gst_rate ?? undefined,
+    salePricePaise: rupees(l.sale_rate_rupees)
   }));
   switch (o.type) {
     case 'invoice': return lines.length ? { type: 'invoice', party, lines } : { type: 'how_to', about: 'invoice' };

@@ -43,7 +43,8 @@ export function profileRules(text: string): Intent | null {
   const email = m(new RegExp(String.raw`^(?:update|change|set|add|edit)\s+(?:my\s+|the\s+|shop\s+)?e-?mail(?:\s+id)?${sep}(\S+@\S+)$`, 'i'));
   if (email) return { type: 'profile_update', field: 'email', value: email };
   // "how do I add my GST number?" with no number in it
-  if (/\b(gst|gstin|address|upi|logo|shop name|business name)\b/.test(t) && /\b(how|where|add|update|change|set|edit)\b/.test(t) && !g
+  if (/\b(gstin|gst (?:no|number|registration|details)|address|upi(?: id)?|logo|shop name|business name|shop details)\b/.test(t)
+      && /\b(how|where|add|update|change|set|edit)\b/.test(t) && !g && !/\d+\s*%|@|\d+\s*(?:rs|₹|pcs|nos)|\bstock\b/.test(t)
       && !/^(bill|invoice|sale|sold|sell|quote|quotation|estimate|bought|purchase)\b/.test(t)) return { type: 'how_to', about: 'profile' };
   return null;
 }
@@ -216,6 +217,27 @@ export class SimpleParser implements Parser {
     if (bill) {
       const pl = partyAndLines(bill[1]!);
       return pl ? { type: 'invoice', ...pl } : { type: 'how_to', about: 'invoice' };
+    }
+
+    const add = /^(?:add|added|stock\s*in|opening\s+stock|received|got)\b[:\s]*(.*)$/is.exec(t);
+    if (add && /\d/.test(add[1]!)) {
+      let rest = ' ' + add[1]! + ' ';
+      const take = (re: RegExp) => { const m = re.exec(rest); if (m) rest = rest.slice(0, m.index) + ' ' + rest.slice(m.index + m[0].length); return m; };
+      const sale = take(new RegExp(String.raw`[,;]?\s*(?:and\s+)?(?:selling|sale|sell)\s*(?:price|rate)?\s*(?:is|of|=|:|at|@)?\s*(?:rs\.?\s*|₹\s*)?(${NUM})\s*(?:rs|/-|₹)?`, 'i'))
+        ?? take(new RegExp(String.raw`[,;]?\s*\b(?:mrp|sp)\s*(?:is|of|=|:|at|@)?\s*(?:rs\.?\s*|₹\s*)?(${NUM})\s*(?:rs|/-)?`, 'i'));
+      const gst = take(/[,;]?\s*(?:with|@|at|and)?\s*(\d{1,2}(?:\.\d+)?)\s*%\s*(?:gst|tax)?/i);
+      take(/\b(?:in)?to\s+(?:the\s+|my\s+)?(?:stock|inventory)\b|\bstock\b/i);
+      let party: PartyIntent = {};
+      const f = take(/\bfrom\s+([^,;]+?)\s*$/i);
+      if (f) party = { name: clean(f[1]!) };
+      rest = rest.replace(/(\d)\s*(?:rs\.?|₹|\/-)(?=\s|,|$)/gi, '$1').replace(/\b(?:rs\.?|₹)\s*(?=\d)/gi, '');
+      const lines = splitLines(rest.replace(/[,;\s]+$/, '')).map(parseLine);
+      if (lines.length && lines.every((l) => l !== null)) {
+        const ls = lines as LineIntent[];
+        if (gst) ls.forEach((l) => { l.gstRate = Number(gst[1]); });
+        if (sale && ls.length === 1) ls[0]!.salePricePaise = toPaise(sale[1]!);
+        return { type: 'purchase', party, lines: ls };
+      }
     }
 
     const buy = /^(?:bought|purchase|purchased|buy)\b[:\s]*(.*)$/is.exec(t);

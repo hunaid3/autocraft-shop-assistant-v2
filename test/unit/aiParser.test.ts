@@ -8,7 +8,7 @@ const blank = {
   expense_amount_rupees: null, expense_category: null, expense_mode: null, expense_paid_to: null, stock_out_reason: null, quote_ref: null, quote_is_estimate: null, quote_valid_days: null,
   report: null, report_item: null, period: null, clarification: null
 };
-const line = (o: object) => ({ name: '', qty: '1', unit: null, rate_rupees: null, discount_rupees: null, gst_rate: null, ...o });
+const line = (o: object) => ({ name: '', qty: '1', unit: null, rate_rupees: null, discount_rupees: null, gst_rate: null, sale_rate_rupees: null, ...o });
 
 /** A fake OpenAI that returns `content` and records what it was sent. */
 function fakeOpenAi(content: unknown, status = 200) {

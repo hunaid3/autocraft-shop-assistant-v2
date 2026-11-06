@@ -24,6 +24,7 @@ export interface DraftLine {
   ratePaise: number;
   discountPaise: number;
   gstRate: number;
+  salePricePaise?: number;   // purchases: selling price to save on the item
   taxablePaise: number;
   gstPaise: number;
   totalPaise: number;
@@ -159,6 +160,7 @@ async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice'
     lines.push({
       itemId: item?.id ?? null, newItem, name, unit: item?.unit ?? newItem!.unit, hsn: item?.hsn ?? newItem?.hsn ?? r.hsn ?? null,
       qty: String(Number(r.qty)), ratePaise, discountPaise: r.discountPaise ?? 0, gstRate,
+      ...(kind === 'purchase' && r.salePricePaise ? { salePricePaise: r.salePricePaise } : {}),
       taxablePaise: a.taxablePaise, gstPaise: a.gstPaise, totalPaise: a.totalPaise
     });
   }
@@ -166,7 +168,8 @@ async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice'
 }
 
 const lineText = (l: DraftLine) =>
-  `• ${l.name} × ${qtyText(l.qty)} @ ₹${formatInr(l.ratePaise)}${l.discountPaise ? ` (−₹${formatInr(l.discountPaise)})` : ''}`;
+  `• ${l.name} × ${qtyText(l.qty)} @ ₹${formatInr(l.ratePaise)}${l.discountPaise ? ` (−₹${formatInr(l.discountPaise)})` : ''}` +
+  `${l.gstRate ? ` + ${l.gstRate}% GST` : ''}${l.salePricePaise ? ` · sell at ₹${formatInr(l.salePricePaise)}` : ''}`;
 
 export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Built> {
   const balance = await creditBalance(tx);

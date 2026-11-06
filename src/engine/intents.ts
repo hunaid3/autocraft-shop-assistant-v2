@@ -11,6 +11,7 @@ export interface LineIntent {
   discountPaise?: number;
   gstRate?: number;          // missing → item's rate, or the shop default for a new item
   hsn?: string;              // from a bill; kept on new items
+  salePricePaise?: number;   // purchases: the selling price, saved on the item
 }
 
 export interface PartyIntent {
