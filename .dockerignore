@@ -1,0 +1,10 @@
+node_modules
+dist
+.pgdata
+.git
+.github
+test
+coverage
+.env
+.env.*
+*.log

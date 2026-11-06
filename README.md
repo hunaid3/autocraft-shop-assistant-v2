@@ -194,10 +194,36 @@ appeared in chat or in this repo.
 
 **OpenAI key:** stored on 6 Nov 2026 in Supabase Vault as `openai_api_key` (entered by Hunaid in the SQL editor).
 
-**TODO once the AWS account is active:** copy both into AWS Secrets Manager (Mumbai):
-`autocraft/v2/db-engine` with keys `username=app_engine`, `password=…`, and `autocraft/v2/openai` with
-`OPENAI_API_KEY`. The engine reads them from there at start-up.
-To rotate, run the same block again after dropping the Vault entry, then update Secrets Manager.
+## Running in AWS (Mumbai, ap-south-1)
+
+Created on 6 Nov 2026 through the AWS connector (account 886069266990). Everything is tagged
+`project=autocraft-shop-assistant-v2`.
+
+| Piece | Name | Notes |
+|---|---|---|
+| Public HTTPS URL | `https://izxv17q41l.execute-api.ap-south-1.amazonaws.com` | API Gateway HTTP API; only `GET/POST /webhook` and `GET /healthz` are routed; 100 req/s, burst 200 |
+| Webhook URL for Meta | `…/webhook` | verify token = Vault `meta_verify_token` |
+| Engine | ECS Fargate cluster `autocraft`, service `shop-assistant` | 0.5 vCPU / 1 GB, x86, public IP for outbound only; port 8080 reachable only from the API's VPC link (security group `autocraft-engine`) |
+| Private routing | Cloud Map `autocraft.internal` / `shop-assistant` (SRV) + VPC link `autocraft-engine-link` | how the API finds the running container |
+| Image | ECR `autocraft/shop-assistant` | scanned on push, last 15 kept |
+| Logs | CloudWatch `/autocraft/shop-assistant` | 30 days |
+| DB password | Secrets Manager `autocraft/v2/db-engine-password` | plain text; copy of Vault `autocraft_v2_db_engine` |
+| Roles | `autocraft-ecs-execution` (pull, logs, that one secret), `autocraft-shop-assistant-task` (no permissions), `autocraft-github-deploy` (OIDC, `main` only: push image, update this service) | |
+
+**Where secrets live:** AWS holds only the database password. At start-up the engine connects as
+`app_engine` and reads its keys from Supabase Vault through `app.engine_secrets()` (callable by
+`app_engine` only): `meta_access_token`, `meta_app_secret`, `meta_verify_token`, `meta_phone_number_id`,
+`openai_api_key`, `supabase_secret_key`, `sentry_dsn`. To rotate a key: update it in Vault, then restart
+the service (ECS → `shop-assistant` → Update → Force new deployment). The pooler host is found by trying
+`DB_HOSTS` in order. TLS to the pooler is encrypted but the certificate is not pinned yet.
+
+**Deploys:** `.github/workflows/deploy.yml` runs after CI passes on `main`: builds the `Dockerfile`
+(Chromium + poppler), pushes `:<sha>` and `:latest`, registers `infra/task-definition.json` with that
+image and `RELEASE=<sha>`, rolls the service (circuit breaker rolls back a failed start).
+
+**Cost at one running task (approximate):** Fargate ₹1,500, public IPv4 ₹300, API Gateway and Cloud
+Map under ₹100, logs and ECR under ₹100 a month. The service was created with 0 tasks; it is scaled to 1
+once the DB password is in Secrets Manager.
 
 The engine's `DATABASE_URL` uses `app_engine` through Supavisor, never `postgres` or the service key.
 

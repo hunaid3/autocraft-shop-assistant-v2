@@ -1,4 +1,5 @@
-/** All settings come from the environment (AWS Secrets Manager in production). */
+/** All settings come from the environment. In AWS: the DB password from Secrets Manager, keys from Supabase Vault (runtimeEnv.ts). */
+import { hostname } from 'node:os';
 import { z } from 'zod';
 
 const schema = z.object({
@@ -13,7 +14,7 @@ const schema = z.object({
   BOT_PHONE: z.string().regex(/^\d{8,15}$/).optional(),
   PORT: z.coerce.number().int().default(8080),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(200).default(8),
-  WORKER_ID: z.string().default(`worker-${process.pid}`),
+  WORKER_ID: z.string().default(`${hostname()}-${process.pid}`),   // unique per container
   // Without a key the engine runs on the rule-based reader only.
   OPENAI_API_KEY: z.string().min(20).optional(),
   // Check developers.openai.com/api/docs/models before changing; must support Structured Outputs.

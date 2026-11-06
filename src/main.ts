@@ -11,10 +11,13 @@ import { OpenAiParser } from './engine/aiParser.js';
 import { chromiumRenderer } from './documents/pdf.js';
 import { SupabaseFileStore } from './documents/fileStore.js';
 import { OpenAiBillReader } from './engine/billReader.js';
+import { prepareRuntimeEnv } from './runtimeEnv.js';
 
+// In AWS only the database password is given; the rest comes from Supabase Vault.
+const db = await prepareRuntimeEnv(process.env, (m) => console.log(JSON.stringify({ level: 30, msg: m })));
 const config = loadConfig();
 const reporter = initSentry({ dsn: config.SENTRY_DSN, environment: config.APP_ENV, release: config.RELEASE });
-const pool = new pg.Pool({ connectionString: config.DATABASE_URL, max: config.WORKER_CONCURRENCY + 10 });
+const pool = new pg.Pool({ connectionString: config.DATABASE_URL, ssl: db.ssl, max: config.WORKER_CONCURRENCY + 10 });
 
 const server = buildServer({
   pool, appSecret: config.META_APP_SECRET, verifyToken: config.META_VERIFY_TOKEN,
