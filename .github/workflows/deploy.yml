@@ -1,7 +1,8 @@
 name: Deploy
 
 # Runs after CI passes on main (or by hand). Builds the container, pushes it to ECR in Mumbai and
-# rolls the ECS service. AWS access is by OIDC: no keys are stored in GitHub.
+# rolls the ECS service. AWS access is by OIDC: no keys are stored in GitHub. The AWS role trusts only
+# subject repo:hunaid3@15307362/autocraft-shop-assistant-v2@1447428790:ref:refs/heads/main (GitHub's IDs).
 on:
   workflow_run:
     workflows: [CI]
@@ -29,11 +30,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Show which identity GitHub gives this run (subject only, never the token)
-        run: |
-          T=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
-          echo "$T" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | jq -c '{sub, ref, event_name, job_workflow_ref}' || true
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
