@@ -6,7 +6,7 @@
 import type { Tx } from '../db/tenantTx.js';
 import { matchItem } from '../domain/itemMatch.js';
 import { docTotals, lineAmounts, supplyType, toQtyMilli, type DocTotals } from '../domain/money.js';
-import { formatInr } from '../domain/format.js';
+import { formatInr, istDate } from '../domain/format.js';
 import type { Intent, LineIntent, StockOutReason } from './intents.js';
 import { REASON_LABEL } from './intents.js';
 import { creditBalance, creditCost, loadCatalog, stockMap, type CatalogItem, type Shop } from './shop.js';
@@ -29,7 +29,11 @@ export interface DraftLine {
 }
 
 export type DraftPayload =
-  | { kind: 'invoice'; party: { name?: string; gstin?: string; stateCode?: string }; supply: 'intra' | 'inter'; placeOfSupply: string; lines: DraftLine[]; totals: DocTotals }
+  | {
+      kind: 'invoice'; party: { name?: string; gstin?: string; stateCode?: string }; supply: 'intra' | 'inter'; placeOfSupply: string; lines: DraftLine[]; totals: DocTotals;
+      // set when the invoice is made from a quotation: which quotation, and its line for each invoice line
+      fromQuote?: { id: string; number: string; lineIds: string[] };
+    }
   | {
       kind: 'purchase'; party: { name?: string; gstin?: string }; billNo?: string; lines: DraftLine[];
       totals: { taxablePaise: number; gstPaise: number; totalPaise: number };
@@ -37,13 +41,18 @@ export type DraftPayload =
     }
   | { kind: 'expense'; amountPaise: number; category: string; mode: string; paidTo?: string }
   | { kind: 'stock_count'; lines: Array<{ itemId: string | null; newItem: NewItem | null; name: string; unit: string; count: string; current: number }> }
+  | {
+      kind: 'quotation'; title: 'quotation' | 'estimate'; party: { name?: string; gstin?: string; stateCode?: string };
+      supply: 'intra' | 'inter'; placeOfSupply: string; lines: DraftLine[]; totals: DocTotals; validUntil: string;
+      revises?: { id: string; number: string; serial: number; fy: string; revision: number };
+    }
   | { kind: 'stock_out'; reason: StockOutReason; party?: string; note?: string; lines: StockOutLine[] }
   | { kind: 'stock_return'; party?: string; lines: StockOutLine[] };
 
 export interface StockOutLine { itemId: string; name: string; unit: string; qty: string; valuePaise: number }
 
 export const ACTION_FOR: Record<DraftPayload['kind'], string> = {
-  invoice: 'invoice', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return'
+  invoice: 'invoice', quotation: 'quotation', purchase: 'typed_entry', expense: 'typed_entry', stock_count: 'stock_count', stock_out: 'stock_out', stock_return: 'stock_return'
 };
 
 /** Goods that stay "out" until they come back or are billed. Damaged and shop-use stock is simply gone. */
@@ -101,7 +110,7 @@ export function cardText(head: string, lines: string[], tail: string, footer: st
 const costLine = (cost: number, balance: number) =>
   cost > 0 ? `\n💳 ${cost} credit${cost === 1 ? '' : 's'} on Confirm · balance ${balance}` : '';
 
-async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice' | 'purchase', opts: { ratesExcludeGst?: boolean } = {}) {
+async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice' | 'purchase' | 'quotation', opts: { ratesExcludeGst?: boolean } = {}) {
   const catalog = await loadCatalog(tx);
   const pendingNew = new Map<string, NewItem>();
   const resolved: Array<{ r: LineIntent; item: CatalogItem | null; newItem: NewItem | null }> = [];
@@ -123,7 +132,7 @@ async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice'
     if (!(ratePaise > 0)) return { error: `What rate for ${name}? ${item ? 'No price is saved for it yet.' : "It's a new item, so there's no saved price yet."}` };
     // A shop without a GSTIN cannot charge GST: its sales are bills of supply. Purchases still record
     // the GST its supplier charged (part of the cost). New items keep their rate for when it registers.
-    const gstRate = kind === 'invoice' && !shop.gstin ? 0 : r.gstRate ?? item?.gstRate ?? newItem!.gstRate;
+    const gstRate = kind !== 'purchase' && !shop.gstin ? 0 : r.gstRate ?? item?.gstRate ?? newItem!.gstRate;
     let a;
     try {
       // Bill rates are read as before-GST whatever the shop's typing setting is
@@ -142,7 +151,7 @@ async function buildLines(tx: Tx, shop: Shop, raw: LineIntent[], kind: 'invoice'
         warnings.push(`⚠️ ${name}: ${item ? `only ${qtyText(onHand)} in stock` : 'no stock recorded yet'}, will show ${qtyText(after)}`);
       }
     }
-    if (newItem) warnings.unshift(`🆕 ${name}: new item, GST ${gstRate}%`);
+    if (newItem) warnings.unshift(`🆕 ${name}: new item, GST ${gstRate}%${kind === 'quotation' ? ', added on Confirm' : ''}`);
     lines.push({
       itemId: item?.id ?? null, newItem, name, unit: item?.unit ?? newItem!.unit, hsn: item?.hsn ?? newItem?.hsn ?? r.hsn ?? null,
       qty: String(Number(r.qty)), ratePaise, discountPaise: r.discountPaise ?? 0, gstRate,
@@ -186,6 +195,78 @@ export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Bu
     });
     const summary = cardText('📦 *Stock count*: set stock to', body, lines.some((l) => l.newItem) ? '🆕 = new item, added on Confirm' : '', costLine(cost, balance));
     return { ok: true, payload: { kind: 'stock_count', lines }, summary, cost, balance };
+  }
+
+  if (intent.type === 'quotation' || intent.type === 'quote_revise') {
+    let revises: Extract<DraftPayload, { kind: 'quotation' }>['revises'];
+    let title: 'quotation' | 'estimate' = intent.type === 'quotation' ? intent.title ?? shop.settings.quotationTitle : shop.settings.quotationTitle;
+    let party = intent.party;
+    if (intent.type === 'quote_revise') {
+      const q = await findQuotation(tx, intent.ref);
+      if ('error' in q) return fail(q.error);
+      if (!['open', 'accepted'].includes(q.status)) return fail(`${q.number} is ${q.status.replace('_', ' ')}, so it can't be revised. Send a new quote instead.`);
+      revises = { id: q.id, number: q.number, serial: q.serial, fy: q.fy, revision: q.revision };
+      title = q.doc_title;
+      if (!party.name) party = { name: q.bill_to?.name, gstin: q.bill_to?.gstin };
+    }
+    if (!intent.lines.length) return fail('Which items?');
+    const built = await buildLines(tx, shop, intent.lines, 'quotation');
+    if ('error' in built) return fail(built.error!);
+    const buyerState = party.gstin?.slice(0, 2);
+    const supply = supplyType(shop.stateCode, buyerState);
+    const totals = docTotals(built.lines, supply);
+    const cost = await creditCost(tx, ACTION_FOR.quotation);
+    const days = intent.type === 'quotation' && intent.validDays ? Math.min(Math.max(intent.validDays, 1), 365) : shop.settings.quotationValidityDays;
+    const validUntil = addDays(istDate(), days);
+    const label = title === 'estimate' ? 'Estimate' : 'Quotation';
+    const head = `📝 *${label}*${revises ? ` (revision of ${revises.number})` : ''}${party.name ? ' to ' + party.name : ''}` +
+      (party.gstin ? `\nGSTIN ${party.gstin}` : '') +
+      (shop.gstin
+        ? `\nTaxable ₹${formatInr(totals.taxablePaise)} + ${supply === 'intra' ? 'CGST/SGST' : 'IGST'} ₹${formatInr(totals.cgstPaise + totals.sgstPaise + totals.igstPaise)} · *Total ₹${formatInr(totals.totalPaise)}*`
+        : `\n*Total ₹${formatInr(totals.totalPaise)}* (no GST: your shop has no GSTIN saved)`) +
+      `\nValid until ${validUntil.split('-').reverse().join('-')} · no stock moves until it is billed`;
+    const warn = built.warnings.slice(0, 6).join('\n');
+    return { ok: true, cost, balance, summary: cardText(head, built.lines.map(lineText), warn, costLine(cost, balance)),
+      payload: { kind: 'quotation', title, party: { name: party.name, gstin: party.gstin, stateCode: buyerState }, supply, placeOfSupply: buyerState ?? shop.stateCode, lines: built.lines, totals, validUntil, revises } };
+  }
+
+  if (intent.type === 'quote_convert') {
+    const q = await findQuotation(tx, intent.ref);
+    if ('error' in q) return fail(q.error);
+    if (q.status === 'converted') return fail(`${q.number} has already been billed.`);
+    if (!['open', 'accepted', 'partly_converted'].includes(q.status)) return fail(`${q.number} is ${q.status}, so it can't be billed.${q.status === 'superseded' ? ' Bill its latest revision instead.' : ''}`);
+    const { rows: ql } = await tx.query(
+      `select l.id, l.item_id, l.item_name, l.hsn, l.qty - l.qty_converted as qty, l.unit, l.rate_paise, l.discount_paise, l.gst_rate, l.qty as full_qty,
+              l.taxable_paise, l.gst_paise, l.line_total_paise
+         from quotation_lines l where l.quotation_id = $1 and l.qty > l.qty_converted order by l.line_no`, [q.id]);
+    if (!ql.length) return fail(`Everything on ${q.number} has already been billed.`);
+    if (!shop.gstin && ql.some((l) => Number(l.gst_rate) > 0)) return fail(`${q.number} charges GST, but your shop has no GSTIN saved now, so it can't become a bill as it is. Send the bill as a new entry.`);
+    const stock = await stockMap(tx, ql.flatMap((l) => (l.item_id ? [l.item_id] : [])));
+    const warnings: string[] = [];
+    const lines: DraftLine[] = [];
+    for (const l of ql) {
+      const whole = Number(l.qty) === Number(l.full_qty);
+      // Same rate, discount and GST as quoted; a part already billed is recomputed for what is left
+      const a = whole
+        ? { taxablePaise: Number(l.taxable_paise), gstPaise: Number(l.gst_paise), totalPaise: Number(l.line_total_paise) }
+        : lineAmounts({ qty: String(Number(l.qty)), ratePaise: Number(l.rate_paise), discountPaise: 0, gstRate: Number(l.gst_rate), pricesIncludeGst: false });
+      const onHand = stock.get(l.item_id) ?? 0;
+      if (onHand - Number(l.qty) < 0) {
+        if (shop.settings.stockShortfall === 'block') return fail(`Not enough stock: ${l.item_name} has ${qtyText(onHand)} ${l.unit} left.`);
+        warnings.push(`⚠️ ${l.item_name}: only ${qtyText(onHand)} in stock, will show ${qtyText(onHand - Number(l.qty))}`);
+      }
+      lines.push({ itemId: l.item_id, newItem: null, name: l.item_name, unit: l.unit, hsn: l.hsn, qty: String(Number(l.qty)), ratePaise: Number(l.rate_paise),
+        discountPaise: whole ? Number(l.discount_paise) : 0, gstRate: Number(l.gst_rate), ...a });
+    }
+    const supply = q.supply_type as 'intra' | 'inter';
+    const totals = docTotals(lines, supply);
+    const cost = await creditCost(tx, ACTION_FOR.invoice);
+    const expired = q.valid_until < istDate() ? `\n⚠️ This quote expired on ${q.valid_until.split('-').reverse().join('-')}. Rates are as quoted.` : '';
+    const head = `🧾 *${shop.gstin ? 'Invoice' : 'Bill of supply'}* from ${q.number}${q.bill_to?.name ? ' to ' + q.bill_to.name : ''}` +
+      `\n*Total ₹${formatInr(totals.totalPaise)}*` + expired;
+    return { ok: true, cost, balance, summary: cardText(head, lines.map(lineText), warnings.join('\n'), costLine(cost, balance)),
+      payload: { kind: 'invoice', party: { name: q.bill_to?.name, gstin: q.bill_to?.gstin ?? undefined, stateCode: q.bill_to?.gstin?.slice(0, 2) },
+        supply, placeOfSupply: q.place_of_supply, lines, totals, fromQuote: { id: q.id, number: q.number, lineIds: ql.map((l) => l.id) } } };
   }
 
   if (intent.type === 'stock_out' || intent.type === 'stock_return') {
@@ -279,6 +360,30 @@ export async function buildDraft(tx: Tx, shop: Shop, intent: Intent): Promise<Bu
   }
 
   return fail("I can't do that yet. Type *help* to see what I can do.");
+}
+
+// ── Quotations ──────────────────────────────────────────────────────────────
+
+export const addDays = (date: string, days: number) => new Date(Date.parse(date + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
+
+export interface FoundQuote {
+  id: string; number: string; serial: number; fy: string; revision: number; status: string; doc_title: 'quotation' | 'estimate';
+  valid_until: string; supply_type: string; place_of_supply: string; bill_to: { name?: string; gstin?: string } | null;
+}
+
+/** "12" → the latest revision of quotation 12 this FY (or the most recent 12); a full number → that one. */
+export async function findQuotation(tx: Tx, ref: string, lock = false): Promise<FoundQuote | { error: string }> {
+  const r = ref.trim().toUpperCase();
+  const cols = `id, number, serial, fy, revision, status, doc_title, to_char(valid_until, 'YYYY-MM-DD') valid_until, supply_type, place_of_supply, bill_to`;
+  const forUpdate = lock ? ' for update' : '';
+  let rows;
+  if (/^\d{1,6}$/.test(r)) {
+    ({ rows } = await tx.query(
+      `select ${cols} from quotations where serial = $1 order by (fy = app.fy_of(app.today_ist())) desc, fy desc, revision desc limit 1${forUpdate}`, [Number(r)]));
+  } else {
+    ({ rows } = await tx.query(`select ${cols} from quotations where number = $1${forUpdate}`, [r]));
+  }
+  return rows[0] ?? { error: `I can't find quotation ${ref}. Type *quotes* to see the open ones.` };
 }
 
 // ── Saving and finding drafts ───────────────────────────────────────────────

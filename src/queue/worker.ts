@@ -11,7 +11,7 @@ import {
   onInboundParked, PermanentError, processInbound, processOutbound,
   type EngineDeps, type InboundPayload, type OutboundPayload
 } from '../engine/process.js';
-import { processInvoicePdf, type InvoicePdfPayload } from '../documents/invoiceJob.js';
+import { processInvoicePdf, type DocumentJob } from '../documents/invoiceJob.js';
 
 export type QueueName = 'inbound' | 'outbound' | 'documents';
 
@@ -40,7 +40,7 @@ function idsOf(payload: unknown): Record<string, string | null> {
   if (typeof payload !== 'object' || payload === null) return {};
   const p = payload as Record<string, unknown>;
   const out: Record<string, string | null> = {};
-  for (const k of ['message_id', 'outbound_id', 'tenant_id', 'invoice_id'] as const) if (k in p) out[k] = p[k] == null ? null : String(p[k]);
+  for (const k of ['message_id', 'outbound_id', 'tenant_id', 'invoice_id', 'quotation_id'] as const) if (k in p) out[k] = p[k] == null ? null : String(p[k]);
   return out;
 }
 
@@ -57,8 +57,8 @@ export function startWorker(deps: EngineDeps, opts: WorkerOptions): Worker {
       case 'inbound': await processInbound(deps, payload as InboundPayload); return;
       case 'outbound': await processOutbound(deps, payload as OutboundPayload); return;
       case 'documents': {
-        const p = payload as InvoicePdfPayload;
-        if (p.kind !== 'invoice_pdf') throw new PermanentError(`unknown document job ${String(p.kind)}`);
+        const p = payload as DocumentJob;
+        if (p.kind !== 'invoice_pdf' && p.kind !== 'quotation_pdf') throw new PermanentError(`unknown document job ${String((p as { kind?: unknown }).kind)}`);
         await processInvoicePdf({ pool: deps.pool, ...deps.documents! }, p);
       }
     }

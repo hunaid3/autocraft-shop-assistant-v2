@@ -95,6 +95,18 @@ export async function runQuery(tx: Tx, q: Extract<Intent, { type: 'query' }>, ro
         '\n\nWhen goods come back: *returned 2 airdopes from Ravi*');
     }
 
+    case 'open_quotes': {
+      const { rows } = await tx.query(
+        `select number, doc_title, bill_to->>'name' as party, total_paise, to_char(valid_until, 'YYYY-MM-DD') as valid_until,
+                valid_until < app.today_ist() as expired, status
+           from quotations where status in ('open', 'accepted', 'partly_converted') order by quote_date desc, number desc limit 30`);
+      if (!rows.length) return '📝 No open quotations. To make one: *quote Ravi 10 airdopes at 1250*';
+      return trunc('📝 *Open quotations*\n' + rows.map((r) =>
+        `• ${r.number}${r.party ? ' · ' + r.party : ''} · ₹${formatInr(Number(r.total_paise))} · ${r.expired ? '⌛ expired ' : 'valid till '}${r.valid_until.split('-').reverse().join('-')}` +
+        (r.status === 'partly_converted' ? ' · part billed' : '')).join('\n') +
+        '\n\nTo bill one: *convert quote 12* · to change one: *revise quote 12 10 airdopes at 1200*');
+    }
+
     case 'sales_period': {
       const p = periodRange(q.period ?? 'today');
       const { rows: [s] } = await tx.query(
@@ -113,8 +125,9 @@ export function helpText(name: string | null, role: Role): string {
   return `👋 Hi${name ? ' ' + name : ''}! Send messages like:\n\n` +
     '🧾 *bill* Ravi Electronics 10 airdopes at 1250, 5 cables at 199\n' +
     (owner ? '📥 *bought* 50 airdopes @ 850 from Sharma Traders bill 4471 (or send a photo of the bill)\n💸 *paid* 3500 shop rent cash\n🔢 *stock count* airdopes 141 40, cable 25\n' : '') +
+    '📝 *quote* Ravi 10 airdopes at 1250 (then *convert quote 1* to bill it)\n' +
     '📤 *gave* 2 airdopes sample to Ravi · *3 cables damaged* · *returned* 2 airdopes from Ravi\n' +
-    '\nAsk:\n• stock of airdopes\n• stock / low stock\n• unbilled (goods out without a bill)\n• sales today / this month\n• credits' +
+    '\nAsk:\n• stock of airdopes\n• stock / low stock\n• quotes (open quotations)\n• unbilled (goods out without a bill)\n• sales today / this month\n• credits' +
     '\n\nI always show a summary first. Nothing is saved until you tap ✅ Confirm.';
 }
 
@@ -123,5 +136,6 @@ export const HOW_TO: Record<HowToTopic, string> = {
   purchase: '📥 To record a purchase, send the items, quantity, rate and supplier, e.g.\n*bought 50 airdopes @ 850 from Sharma Traders bill 4471*',
   expense: '💸 To record an expense, send the amount, what it was for and how you paid, e.g.\n*paid 3500 shop rent cash*',
   stock_count: '🔢 To set how many you have in hand, e.g.\n*stock count airdopes 141 40, cable 25*',
+  quotation: '📝 To send a quotation, send the customer, items, quantity and rate, e.g.\n*quote Ravi Electronics 10 airdopes at 1250, 5 cables at 199*\n(*estimate …* for an estimate; add *valid 30 days* to change how long it holds)\n\nTo change it: *revise quote 12 10 airdopes at 1200*\nWhen the customer agrees: *convert quote 12*\nTo see open ones: *quotes*',
   stock_out: '📤 When stock leaves without a bill, say what, how many and why, e.g.\n*gave 2 airdopes sample to Ravi*\n*3 cables damaged*\n*sent 5 airdopes on approval to Ravi*\n*sold 1 cable without bill*\n\nWhen it comes back: *returned 2 airdopes from Ravi*. To see what is out: *unbilled*'
 };

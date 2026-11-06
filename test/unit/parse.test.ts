@@ -109,3 +109,25 @@ describe('stock that leaves without a bill', () => {
     expect(fixedRules('stock out')).toEqual({ type: 'how_to', about: 'stock_out' });
   });
 });
+
+describe('quotations', () => {
+  it('a quote reads like a bill', async () => {
+    expect(await p.parse('quote Ravi Electronics 10 airdopes at 1250, 5 cables at 199', ctx)).toEqual({
+      type: 'quotation', party: { name: 'Ravi Electronics' }, title: undefined, validDays: undefined,
+      lines: [{ name: 'airdopes', qty: '10', unit: undefined, ratePaise: 125000, discountPaise: undefined },
+        { name: 'cables', qty: '5', unit: undefined, ratePaise: 19900, discountPaise: undefined }]
+    });
+  });
+  it('an estimate with its own validity', async () => {
+    const r = await p.parse('estimate for Ravi 2 airdopes at 1200 valid 30 days', ctx);
+    expect(r).toMatchObject({ type: 'quotation', title: 'estimate', validDays: 30, party: { name: 'Ravi' } });
+  });
+  it('revise and convert', async () => {
+    expect(await p.parse('revise quote 12 10 airdopes at 1200', ctx)).toMatchObject({ type: 'quote_revise', ref: '12', lines: [{ name: 'airdopes', qty: '10' }] });
+    expect(fixedRules('convert quote 12')).toEqual({ type: 'quote_convert', ref: '12' });
+    expect(fixedRules('bill quote QT/2026-27/0012')).toEqual({ type: 'quote_convert', ref: 'QT/2026-27/0012' });
+    expect(fixedRules('quote 12 to bill')).toEqual({ type: 'quote_convert', ref: '12' });
+    expect(fixedRules('quotes')).toEqual({ type: 'query', report: 'open_quotes' });
+    expect(fixedRules('quote')).toEqual({ type: 'how_to', about: 'quotation' });
+  });
+});

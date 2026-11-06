@@ -36,14 +36,15 @@ const LINE = z.object({
   rate_rupees: n(z.number()), discount_rupees: n(z.number()), gst_rate: n(z.number())
 });
 const OUT = z.object({
-  type: z.enum(['help', 'greeting', 'confirm', 'cancel', 'query', 'invoice', 'purchase', 'expense', 'stock_count', 'stock_out', 'stock_return', 'unknown']),
+  type: z.enum(['help', 'greeting', 'confirm', 'cancel', 'query', 'invoice', 'purchase', 'expense', 'stock_count', 'stock_out', 'stock_return', 'quotation', 'quote_revise', 'quote_convert', 'unknown']),
   party_name: n(z.string()), party_gstin: n(z.string()), party_phone: n(z.string()),
   lines: z.array(LINE),
   bill_no: n(z.string()),
   expense_amount_rupees: n(z.number()), expense_category: n(z.string()),
   expense_mode: n(z.enum(['cash', 'upi', 'bank', 'card', 'cheque', 'other'])), expense_paid_to: n(z.string()),
   stock_out_reason: n(z.enum(STOCK_OUT_REASONS)),
-  report: n(z.enum(['item_stock', 'stock_all', 'low_stock', 'sales_period', 'credits', 'open_unbilled'])),
+  quote_ref: n(z.string()), quote_is_estimate: n(z.boolean()), quote_valid_days: n(z.number()),
+  report: n(z.enum(['item_stock', 'stock_all', 'low_stock', 'sales_period', 'credits', 'open_unbilled', 'open_quotes'])),
   report_item: n(z.string()),
   period: n(z.enum(['today', 'yesterday', 'this_week', 'this_month', 'last_month', 'this_fy'])),
   clarification: n(z.string())
@@ -54,7 +55,7 @@ const nullable = (t: object) => ({ anyOf: [t, { type: 'null' }] });
 export const JSON_SCHEMA = {
   type: 'object', additionalProperties: false,
   required: ['type', 'party_name', 'party_gstin', 'party_phone', 'lines', 'bill_no', 'expense_amount_rupees', 'expense_category',
-    'expense_mode', 'expense_paid_to', 'stock_out_reason', 'report', 'report_item', 'period', 'clarification'],
+    'expense_mode', 'expense_paid_to', 'stock_out_reason', 'quote_ref', 'quote_is_estimate', 'quote_valid_days', 'report', 'report_item', 'period', 'clarification'],
   properties: {
     type: { type: 'string', enum: OUT.shape.type.options },
     party_name: nullable({ type: 'string' }), party_gstin: nullable({ type: 'string' }), party_phone: nullable({ type: 'string' }),
@@ -73,7 +74,8 @@ export const JSON_SCHEMA = {
     expense_amount_rupees: nullable({ type: 'number' }), expense_category: nullable({ type: 'string' }),
     expense_mode: nullable({ type: 'string', enum: ['cash', 'upi', 'bank', 'card', 'cheque', 'other'] }), expense_paid_to: nullable({ type: 'string' }),
     stock_out_reason: nullable({ type: 'string', enum: [...STOCK_OUT_REASONS] }),
-    report: nullable({ type: 'string', enum: ['item_stock', 'stock_all', 'low_stock', 'sales_period', 'credits', 'open_unbilled'] }),
+    quote_ref: nullable({ type: 'string' }), quote_is_estimate: nullable({ type: 'boolean' }), quote_valid_days: nullable({ type: 'number' }),
+    report: nullable({ type: 'string', enum: ['item_stock', 'stock_all', 'low_stock', 'sales_period', 'credits', 'open_unbilled', 'open_quotes'] }),
     report_item: nullable({ type: 'string' }),
     period: nullable({ type: 'string', enum: ['today', 'yesterday', 'this_week', 'this_month', 'last_month', 'this_fy'] }),
     clarification: nullable({ type: 'string' })
@@ -94,8 +96,12 @@ export function systemPrompt(ctx: ParseContext, maxCatalog: number): string {
     '- stock_out: stock left WITHOUT a bill. stock_out_reason: sample_demo, on_approval, damaged_lost, internal_use (used in the shop),',
     '  branch_transfer, cash_sale_no_bill ("sold without bill", "bina bill"), other. party_name = who got it. Lines need no rate.',
     '  If the reason is not said, use unknown and ask why in clarification.',
+    '- quotation: a price quote or estimate for a customer, nothing sold yet ("quote", "estimate", "rate batao"). Like invoice.',
+    '  quote_is_estimate true if they say estimate; quote_valid_days if they say how long it holds.',
+    '- quote_revise: change an existing quotation; quote_ref = its number as written ("12", "QT/2026-27/0012"); lines = the full new list.',
+    '- quote_convert: turn a quotation into a bill; quote_ref = its number. No lines.',
     '- stock_return: goods that went out without a bill came back ("returned", "wapas aaya"). party_name = who returned it.',
-    '- query: a question; set report (item_stock needs report_item; sales_period needs period; open_unbilled = what is out without a bill).',
+    '- query: a question; set report (item_stock needs report_item; sales_period needs period; open_unbilled = what is out without a bill; open_quotes = open quotations).',
     '- confirm / cancel: yes/no to the last summary. help, greeting.',
     '- unknown: anything else; put a short question in clarification if one detail is missing.',
     '',
@@ -130,6 +136,13 @@ function toIntent(o: Out): Intent {
       if (!lines.length) return { type: 'how_to', about: 'stock_out' };
       if (!o.stock_out_reason) return { type: 'unknown', hint: o.clarification ?? REASON_HINT };
       return { type: 'stock_out', reason: o.stock_out_reason, party: party.name, lines: lines.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit })) };
+    case 'quotation':
+      return lines.length ? { type: 'quotation', party, lines, title: o.quote_is_estimate ? 'estimate' : undefined, validDays: o.quote_valid_days && o.quote_valid_days > 0 ? Math.round(o.quote_valid_days) : undefined }
+        : { type: 'how_to', about: 'quotation' };
+    case 'quote_revise':
+      return o.quote_ref && lines.length ? { type: 'quote_revise', ref: o.quote_ref.trim().toUpperCase(), party, lines } : { type: 'how_to', about: 'quotation' };
+    case 'quote_convert':
+      return o.quote_ref ? { type: 'quote_convert', ref: o.quote_ref.trim().toUpperCase() } : { type: 'how_to', about: 'quotation' };
     case 'stock_return':
       return lines.length ? { type: 'stock_return', party: party.name, lines: lines.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit })) } : { type: 'how_to', about: 'stock_out' };
     case 'stock_count': return lines.length ? { type: 'stock_count', lines: lines.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit })) } : { type: 'how_to', about: 'stock_count' };

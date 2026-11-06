@@ -30,6 +30,7 @@ export function fixedRules(text: string): Intent | null {
   if (/^(credits?|balance|wallet|my credits)$/.test(t)) return { type: 'query', report: 'credits' };
   if (/^(stock|full stock|all stock|stock list|inventory)$/.test(t)) return { type: 'query', report: 'stock_all' };
   if (/^(low stock|stock low|reorder)$/.test(t)) return { type: 'query', report: 'low_stock' };
+  if (/^(quotes|quotations|estimates|open quotes|open quotations|pending quotes)$/.test(t)) return { type: 'query', report: 'open_quotes' };
   if (/^(unbilled|open unbilled|goods out|stock out list|out list|samples?( out)?|on approval|pending returns?)$/.test(t)) return { type: 'query', report: 'open_unbilled' };
 
   const sales = /^(sales?|sale report)\s+(.+)$/.exec(t);
@@ -48,6 +49,11 @@ export function fixedRules(text: string): Intent | null {
   if (/^(expense|paid|spent)$/.test(t)) return { type: 'how_to', about: 'expense' };
   if (/^(stock count|count)$/.test(t)) return { type: 'how_to', about: 'stock_count' };
   if (/^(stock out|out|gave|sent|damaged|returned|return)$/.test(t)) return { type: 'how_to', about: 'stock_out' };
+  if (/^(quote|quotation|estimate|revise|convert)$/.test(t)) return { type: 'how_to', about: 'quotation' };
+  // "convert quote 12", "bill quote 12", "quote 12 to bill": an exact command, no AI needed
+  const conv = /^(?:convert|bill|invoice)\s+(?:the\s+)?(?:quote|quotation|estimate|qt)\s*(?:no\.?|number|#)?\s*([a-z0-9/-]+)(?:\s+(?:to|into)\s+(?:a\s+)?(?:bill|invoice))?$/i.exec(t)
+    ?? /^(?:quote|quotation|estimate)\s*(?:no\.?|#)?\s*([a-z0-9/-]+)\s+(?:to|into)\s+(?:a\s+)?(?:bill|invoice)$/i.exec(t);
+  if (conv) return { type: 'quote_convert', ref: conv[1]!.toUpperCase() };
   return null;
 }
 
@@ -139,6 +145,22 @@ function stockOut(rest: string, verbReason?: StockOutReason): Intent {
 export class SimpleParser implements Parser {
   async parse(text: string, _ctx: ParseContext): Promise<Intent> {
     const t = clean(text);
+
+    const rev = /^(?:revise|revised|update|change)\s+(?:the\s+)?(?:quote|quotation|estimate|qt)\s*(?:no\.?|number|#)?\s*([A-Z0-9/-]+)\b[:\s]*(.*)$/is.exec(t);
+    if (rev) {
+      const pl = partyAndLines(rev[2]!);
+      return pl ? { type: 'quote_revise', ref: rev[1]!.toUpperCase(), ...pl } : { type: 'how_to', about: 'quotation' };
+    }
+    const quote = /^(quote|quotation|estimate)\b[:\s]*(?:for\s+)?(.*)$/is.exec(t);
+    if (quote) {
+      let rest = quote[2]!;
+      let validDays: number | undefined;
+      const v = /\bvalid\s+(?:for\s+)?(\d{1,3})\s*days?\b/i.exec(rest);
+      if (v) { validDays = Number(v[1]); rest = rest.slice(0, v.index) + rest.slice(v.index + v[0].length); }
+      const pl = partyAndLines(rest);
+      if (!pl) return { type: 'how_to', about: 'quotation' };
+      return { type: 'quotation', ...pl, title: /^estimate/i.test(quote[1]!) ? 'estimate' : undefined, validDays };
+    }
 
     // before "sold": "sold 2 cables without bill" is stock out, not an invoice
     if (/^sold\b/i.test(t) && REASONS[0]![0].test(t)) return stockOut(t.replace(/^sold\b/i, ''), 'cash_sale_no_bill');

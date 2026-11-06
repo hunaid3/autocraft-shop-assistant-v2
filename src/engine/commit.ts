@@ -10,7 +10,7 @@ import { ACTION_FOR, actionFor, openForReturn, qtyText, STAYS_OPEN, type DraftLi
 import { REASON_LABEL } from './intents.js';
 import { stockMap, type Shop } from './shop.js';
 import { enqueue } from '../queue/queue.js';
-import type { InvoicePdfPayload } from '../documents/invoiceJob.js';
+import type { InvoicePdfPayload, QuotationPdfPayload } from '../documents/invoiceJob.js';
 
 /** A refusal the person should read, not a fault: the confirm is rolled back and they are told why. */
 export class UserError extends Error {}
@@ -82,6 +82,16 @@ const createdLine = (names: string[]) => (names.length ? `\n🆕 Added to items:
 async function commitInvoice(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'invoice' }>, cost: number, userId: string, phone: string | null): Promise<CommitResult> {
   const created = await ensureItems(tx, shop.id, d.lines, 'sale', userId);
   const party = await upsertParty(tx, shop.id, 'customer', d.party);
+  if (d.fromQuote) {
+    // Lock the quote and check nothing on it was billed since the card was shown
+    const { rows: ql } = await tx.query(
+      `select q.status, array_agg(l.id order by l.line_no) filter (where l.qty > l.qty_converted) as open_ids
+         from quotations q join quotation_lines l on l.quotation_id = q.id where q.id = $1 group by q.id, q.status`, [d.fromQuote.id]);
+    await tx.query('select 1 from quotations where id = $1 for update', [d.fromQuote.id]);
+    if (!ql[0] || !['open', 'accepted', 'partly_converted'].includes(ql[0].status) || (ql[0].open_ids ?? []).join() !== d.fromQuote.lineIds.join()) {
+      throw new UserError(`${d.fromQuote.number} changed after this card was shown (billed or revised). Nothing was saved. Type *quotes* to see it now.`);
+    }
+  }
   const date = istDate();
   const fy = fyOf(date);
   const { rows: s } = await tx.query("select app.next_doc_serial($1, 'invoice', $2) as s", [shop.id, fy]);
@@ -89,20 +99,26 @@ async function commitInvoice(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind
   const t = d.totals;
   const { rows: inv } = await tx.query(
     `insert into invoices (tenant_id, number, fy, serial, invoice_date, party_id, bill_to, customer_gstin, place_of_supply, supply_type,
-       taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, created_by)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning id`,
+       taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, created_by, quotation_id)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) returning id`,
     [shop.id, number, fy, s[0].s, date, party.id, JSON.stringify({ name: party.name ?? 'Cash / Walk-in', gstin: party.gstin }),
-      party.gstin, d.placeOfSupply, d.supply, t.taxablePaise, t.cgstPaise, t.sgstPaise, t.igstPaise, t.roundOffPaise, t.totalPaise, userId]);
+      party.gstin, d.placeOfSupply, d.supply, t.taxablePaise, t.cgstPaise, t.sgstPaise, t.igstPaise, t.roundOffPaise, t.totalPaise, userId, d.fromQuote?.id ?? null]);
   const invoiceId = inv[0].id;
   for (const [i, l] of d.lines.entries()) {
     await tx.query(
-      `insert into invoice_lines (tenant_id, invoice_id, line_no, item_id, item_name, hsn, qty, unit, rate_paise, discount_paise, taxable_paise, gst_rate, gst_paise, line_total_paise)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-      [shop.id, invoiceId, i + 1, l.itemId, l.name, l.hsn, l.qty, l.unit, l.ratePaise, l.discountPaise, l.taxablePaise, l.gstRate, l.gstPaise, l.totalPaise]);
+      `insert into invoice_lines (tenant_id, invoice_id, line_no, item_id, item_name, hsn, qty, unit, rate_paise, discount_paise, taxable_paise, gst_rate, gst_paise, line_total_paise, quotation_line_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [shop.id, invoiceId, i + 1, l.itemId, l.name, l.hsn, l.qty, l.unit, l.ratePaise, l.discountPaise, l.taxablePaise, l.gstRate, l.gstPaise, l.totalPaise, d.fromQuote?.lineIds[i] ?? null]);
+    if (d.fromQuote) await tx.query('update quotation_lines set qty_converted = qty_converted + $2 where id = $1', [d.fromQuote.lineIds[i], l.qty]);
     await tx.query(
       "insert into stock_ledger (tenant_id, item_id, qty_out, movement_type, ref_type, ref_id, note, created_by) values ($1,$2,$3,'sale','invoice',$4,$5,$6)",
       [shop.id, l.itemId, l.qty, invoiceId, party.name ?? 'Walk-in', userId]);
     await tx.query('update items set sale_price_paise = $2 where id = $1 and sale_price_paise = 0', [l.itemId, l.ratePaise]);
+  }
+  if (d.fromQuote) {
+    await tx.query(
+      `update quotations set status = case when exists (select 1 from quotation_lines where quotation_id = $1 and qty > qty_converted)
+                                           then 'partly_converted' else 'converted' end where id = $1`, [d.fromQuote.id]);
   }
   const balance = await debit(tx, shop.id, cost, ACTION_FOR.invoice, 'invoice', invoiceId, userId);
   // The PDF is made after this commits (documents queue), in the same all-or-nothing transaction.
@@ -110,8 +126,53 @@ async function commitInvoice(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind
     { kind: 'invoice_pdf', tenant_id: shop.id, invoice_id: invoiceId, notify_phone: phone } satisfies InvoicePdfPayload, 'documents');
   return {
     refType: 'invoice', refId: invoiceId, balance,
-    reply: `✅ Invoice *${number}*: ₹${formatInr(t.totalPaise)}${party.name ? ' to ' + party.name : ''}` +
+    reply: `✅ Invoice *${number}*: ₹${formatInr(t.totalPaise)}${party.name ? ' to ' + party.name : ''}${d.fromQuote ? ` (from ${d.fromQuote.number})` : ''}` +
       createdLine(created) + '\n' + (await stockAfter(tx, d.lines)) + creditsLine(cost, balance) + '\n📄 PDF follows.'
+  };
+}
+
+async function commitQuotation(tx: Tx, shop: Shop, d: Extract<DraftPayload, { kind: 'quotation' }>, cost: number, userId: string, phone: string | null): Promise<CommitResult> {
+  const created = await ensureItems(tx, shop.id, d.lines, 'sale', userId);
+  const party = await upsertParty(tx, shop.id, 'customer', d.party);
+  const date = istDate();
+  let fy: string, serial: number, revision = 0;
+  if (d.revises) {
+    // A revision keeps the number and adds -R1, -R2…; the old one is kept, marked superseded.
+    const old = await tx.query("update quotations set status = 'superseded' where id = $1 and status in ('open', 'accepted') returning id", [d.revises.id]);
+    if (!old.rowCount) throw new UserError(`${d.revises.number} was billed or revised after this card was shown. Nothing was saved.`);
+    ({ fy, serial } = d.revises);
+    const { rows } = await tx.query('select max(revision) + 1 as r from quotations where fy = $1 and serial = $2', [fy, serial]);
+    revision = rows[0].r;
+  } else {
+    fy = fyOf(date);
+    const { rows } = await tx.query("select app.next_doc_serial($1, 'quotation', $2) as s", [shop.id, fy]);
+    serial = rows[0].s;
+  }
+  const number = formatDocNumber(shop.settings.quotationPrefix, fy, serial, revision);
+  const t = d.totals;
+  const { rows: q } = await tx.query(
+    `insert into quotations (tenant_id, number, fy, serial, revision, revises_id, doc_title, quote_date, valid_until, party_id, bill_to, place_of_supply, supply_type,
+       taxable_paise, cgst_paise, sgst_paise, igst_paise, round_off_paise, total_paise, created_by)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) returning id`,
+    [shop.id, number, fy, serial, revision, d.revises?.id ?? null, d.title, date, d.validUntil, party.id,
+      JSON.stringify({ name: party.name ?? undefined, gstin: party.gstin ?? undefined }), d.placeOfSupply, d.supply,
+      t.taxablePaise, t.cgstPaise, t.sgstPaise, t.igstPaise, t.roundOffPaise, t.totalPaise, userId]);
+  const quoteId = q[0].id;
+  for (const [i, l] of d.lines.entries()) {
+    await tx.query(
+      `insert into quotation_lines (tenant_id, quotation_id, line_no, item_id, item_name, hsn, qty, unit, rate_paise, discount_paise, taxable_paise, gst_rate, gst_paise, line_total_paise)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [shop.id, quoteId, i + 1, l.itemId, l.name, l.hsn, l.qty, l.unit, l.ratePaise, l.discountPaise, l.taxablePaise, l.gstRate, l.gstPaise, l.totalPaise]);
+  }
+  const balance = await debit(tx, shop.id, cost, ACTION_FOR.quotation, 'quotation', quoteId, userId);
+  await enqueue(tx, `quotation:${quoteId}`,
+    { kind: 'quotation_pdf', tenant_id: shop.id, quotation_id: quoteId, notify_phone: phone } satisfies QuotationPdfPayload, 'documents');
+  const label = d.title === 'estimate' ? 'Estimate' : 'Quotation';
+  return {
+    refType: 'quotation', refId: quoteId, balance,
+    reply: `✅ ${label} *${number}*: ₹${formatInr(t.totalPaise)}${party.name ? ' to ' + party.name : ''}, valid until ${d.validUntil.split('-').reverse().join('-')}` +
+      (d.revises ? `\n${d.revises.number} is now replaced by this one.` : '') + createdLine(created) + creditsLine(cost, balance) +
+      `\n📄 PDF follows. When the customer agrees: *convert quote ${serial}*`
   };
 }
 
@@ -243,6 +304,7 @@ async function commitStockReturn(tx: Tx, shop: Shop, d: Extract<DraftPayload, { 
 export async function commitDraft(tx: Tx, shop: Shop, payload: DraftPayload, cost: number, userId: string, phone: string | null = null): Promise<CommitResult> {
   switch (payload.kind) {
     case 'invoice': return commitInvoice(tx, shop, payload, cost, userId, phone);
+    case 'quotation': return commitQuotation(tx, shop, payload, cost, userId, phone);
     case 'purchase': return commitPurchase(tx, shop, payload, cost, userId);
     case 'expense': return commitExpense(tx, shop, payload, cost, userId);
     case 'stock_count': return commitStockCount(tx, shop, payload, cost, userId);

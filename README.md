@@ -73,7 +73,12 @@ Phase 2, slice 1 (core loop):
       staff allowed. Samples, approvals, transfers and cash sales stay on the **unbilled** list (value at cost for the owner)
       until *returned 2 airdopes from Ravi* (free; part returns keep the rest open); damage and shop use are written off.
       No reason given → the bot asks why rather than guessing.
-- [ ] Next: quotations
+- [x] **Quotations and estimates**: *quote Ravi 10 airdopes at 1250* (or *estimate …*, *valid 30 days*) → card → Confirm
+      numbers it `QT/<FY>/0001`, charges 1 credit and sends a QUOTATION/ESTIMATE PDF with its validity date; no stock moves.
+      *revise quote 1 …* issues `…-R1` and marks the old one superseded. *convert quote 1* makes the invoice at the quoted
+      rates (3 credits), moves stock, links invoice and lines to the quote, and closes it; a superseded, billed or
+      changed-since-the-card quote is refused. *quotes* lists the open ones with expiry.
+- [ ] Next: onboarding new shops on WhatsApp (Phase 4), recharges (Phase 3)
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

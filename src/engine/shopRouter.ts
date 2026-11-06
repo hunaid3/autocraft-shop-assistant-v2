@@ -184,6 +184,9 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       }
 
       case 'invoice':
+      case 'quotation':
+      case 'quote_revise':
+      case 'quote_convert':
       case 'purchase':
       case 'expense':
       case 'stock_count':

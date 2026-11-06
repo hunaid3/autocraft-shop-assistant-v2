@@ -19,7 +19,7 @@ export interface PartyIntent {
   phone?: string;
 }
 
-export type ReportName = 'item_stock' | 'stock_all' | 'low_stock' | 'sales_period' | 'credits' | 'open_unbilled';
+export type ReportName = 'item_stock' | 'stock_all' | 'low_stock' | 'sales_period' | 'credits' | 'open_unbilled' | 'open_quotes';
 
 /** Why stock left without a bill (matches stock_adjustments.reason). */
 export const STOCK_OUT_REASONS = ['cash_sale_no_bill', 'sample_demo', 'on_approval', 'internal_use', 'damaged_lost', 'branch_transfer', 'other'] as const;
@@ -30,7 +30,7 @@ export const REASON_LABEL: Record<StockOutReason, string> = {
 };
 
 export type QtyLine = { name: string; qty: string; unit?: string };
-export type HowToTopic = 'invoice' | 'purchase' | 'expense' | 'stock_count' | 'stock_out';
+export type HowToTopic = 'invoice' | 'purchase' | 'expense' | 'stock_count' | 'stock_out' | 'quotation';
 export type PeriodName = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'this_fy';
 
 export type Intent =
@@ -41,6 +41,10 @@ export type Intent =
   | { type: 'edit' }
   | { type: 'query'; report: ReportName; item?: string; period?: PeriodName }
   | { type: 'invoice'; party: PartyIntent; lines: LineIntent[] }
+  // ref = what the person typed to name a quotation: "12", "QT/2026-27/0012", "QT/2026-27/0012-R1"
+  | { type: 'quotation'; party: PartyIntent; lines: LineIntent[]; title?: 'quotation' | 'estimate'; validDays?: number }
+  | { type: 'quote_revise'; ref: string; party: PartyIntent; lines: LineIntent[] }
+  | { type: 'quote_convert'; ref: string }
   | {
       type: 'purchase'; party: PartyIntent; lines: LineIntent[]; billNo?: string;
       // set when read from a bill photo or PDF

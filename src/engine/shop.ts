@@ -15,6 +15,9 @@ export interface Shop {
     pricesIncludeGst: boolean;
     stockShortfall: 'allow' | 'block';
     invoicePrefix: string;
+    quotationPrefix: string;
+    quotationTitle: 'quotation' | 'estimate';
+    quotationValidityDays: number;
   };
 }
 
@@ -32,7 +35,8 @@ export interface CatalogItem extends MatchableItem {
 
 export async function loadShop(tx: Tx, tenantId: string): Promise<Shop> {
   const { rows } = await tx.query(
-    `select t.id, t.name, t.state_code, t.gstin, s.default_gst_rate, s.prices_include_gst, s.stock_shortfall, s.invoice_prefix
+    `select t.id, t.name, t.state_code, t.gstin, s.default_gst_rate, s.prices_include_gst, s.stock_shortfall, s.invoice_prefix,
+            s.quotation_prefix, s.quotation_title, s.quotation_validity_days
        from tenants t join tenant_settings s on s.tenant_id = t.id where t.id = $1`, [tenantId]);
   const r = rows[0];
   if (!r) throw new Error('shop not found in context');
@@ -40,7 +44,8 @@ export async function loadShop(tx: Tx, tenantId: string): Promise<Shop> {
     id: r.id, name: r.name, stateCode: r.state_code, gstin: r.gstin,
     settings: {
       defaultGstRate: Number(r.default_gst_rate), pricesIncludeGst: r.prices_include_gst,
-      stockShortfall: r.stock_shortfall, invoicePrefix: r.invoice_prefix
+      stockShortfall: r.stock_shortfall, invoicePrefix: r.invoice_prefix,
+      quotationPrefix: r.quotation_prefix, quotationTitle: r.quotation_title, quotationValidityDays: Number(r.quotation_validity_days)
     }
   };
 }
