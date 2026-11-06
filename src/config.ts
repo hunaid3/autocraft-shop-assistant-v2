@@ -8,6 +8,8 @@ const schema = z.object({
   META_VERIFY_TOKEN: z.string().min(1),
   META_ACCESS_TOKEN: z.string().min(1),
   META_PHONE_NUMBER_ID: z.string().min(1),
+  META_APP_ID: z.string().regex(/^\d+$/).optional(),   // to check the WhatsApp account sends us its webhooks
+  META_WABA_ID: z.string().regex(/^\d+$/).optional(),  // optional; found from the token when unset
   // Check the current version at developers.facebook.com/docs/graph-api/changelog
   META_GRAPH_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v23.0'),
   // The bot's own number (E.164 digits). Messages "from" it are ignored, so the bot never answers itself.

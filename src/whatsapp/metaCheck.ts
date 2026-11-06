@@ -21,3 +21,41 @@ export async function checkMeta(opts: { accessToken: string; phoneNumberId: stri
     return { ok: false, detail: { error: (e as Error).name } };
   }
 }
+
+/**
+ * Makes sure each WhatsApp Business Account this token manages sends its webhooks to our app
+ * (POST /{waba}/subscribed_apps). Without it Meta verifies the webhook but never delivers messages.
+ * The accounts are found from the token itself (debug_token's granular scopes). Idempotent.
+ */
+export async function ensureSubscribed(opts: {
+  accessToken: string; appId: string; appSecret: string; graphVersion: string; wabaIds?: string[]; fetchImpl?: typeof fetch;
+}): Promise<Array<{ waba: string; result: 'already' | 'subscribed' | 'failed'; detail?: unknown }>> {
+  const f = opts.fetchImpl ?? fetch;
+  const g = `https://graph.facebook.com/${opts.graphVersion}`;
+  const auth = { authorization: `Bearer ${opts.accessToken}` };
+  let wabas = opts.wabaIds ?? [];
+  if (!wabas.length) {
+    const appToken = encodeURIComponent(`${opts.appId}|${opts.appSecret}`);
+    const r = await f(`${g}/debug_token?input_token=${encodeURIComponent(opts.accessToken)}&access_token=${appToken}`, { signal: AbortSignal.timeout(10_000) });
+    const body = (await r.json().catch(() => ({}))) as { data?: { app_id?: string; granular_scopes?: Array<{ scope: string; target_ids?: string[] }> } };
+    if (body.data?.app_id && body.data.app_id !== opts.appId) return [{ waba: '-', result: 'failed', detail: 'token belongs to a different app' }];
+    wabas = [...new Set((body.data?.granular_scopes ?? [])
+      .filter((s) => s.scope === 'whatsapp_business_management' || s.scope === 'whatsapp_business_messaging')
+      .flatMap((s) => s.target_ids ?? []))];
+    if (!wabas.length) return [{ waba: '-', result: 'failed', detail: 'no WhatsApp account found in the token scopes' }];
+  }
+  const out: Array<{ waba: string; result: 'already' | 'subscribed' | 'failed'; detail?: unknown }> = [];
+  for (const waba of wabas) {
+    try {
+      const cur = (await (await f(`${g}/${waba}/subscribed_apps`, { headers: auth, signal: AbortSignal.timeout(10_000) })).json()) as
+        { data?: Array<{ whatsapp_business_api_data?: { id?: string } }>; error?: { message?: string } };
+      if (cur.data?.some((a) => a.whatsapp_business_api_data?.id === opts.appId)) { out.push({ waba, result: 'already' }); continue; }
+      const res = await f(`${g}/${waba}/subscribed_apps`, { method: 'POST', headers: auth, signal: AbortSignal.timeout(10_000) });
+      const body = (await res.json().catch(() => ({}))) as { success?: boolean; error?: { message?: string; code?: number } };
+      out.push(body.success ? { waba, result: 'subscribed' } : { waba, result: 'failed', detail: { http: res.status, code: body.error?.code, message: body.error?.message?.slice(0, 200) } });
+    } catch (e) {
+      out.push({ waba, result: 'failed', detail: (e as Error).name });
+    }
+  }
+  return out;
+}
