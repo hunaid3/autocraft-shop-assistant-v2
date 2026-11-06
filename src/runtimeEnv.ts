@@ -18,7 +18,7 @@ export function candidateDatabases(env: NodeJS.ProcessEnv): DbSettings[] {
   if (env.DATABASE_URL) return [{ connectionString: env.DATABASE_URL }];
   if (!env.DB_PASSWORD) throw new Error('Set DATABASE_URL, or DB_PASSWORD with DB_HOSTS');
   const user = env.DB_USER ?? 'app_engine.epskxazkpxatbtumnhio';
-  const hosts = (env.DB_HOSTS ?? 'aws-1-ap-south-1.pooler.supabase.com,aws-0-ap-south-1.pooler.supabase.com').split(',').map((h) => h.trim()).filter(Boolean);
+  const hosts = (env.DB_HOSTS ?? 'aws-0-ap-south-1.pooler.supabase.com,aws-1-ap-south-1.pooler.supabase.com').split(',').map((h) => h.trim()).filter(Boolean);
   // Encrypted; the server certificate is not pinned yet (TODO: ship Supabase's CA and verify).
   return hosts.map((h) => {
     const u = new URL(`postgres://${h}:${env.DB_PORT ?? '5432'}/${env.DB_NAME ?? 'postgres'}`);

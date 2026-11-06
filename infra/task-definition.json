@@ -19,7 +19,7 @@
         { "name": "LOG_LEVEL", "value": "info" },
         { "name": "WORKER_CONCURRENCY", "value": "4" },
         { "name": "BOT_PHONE", "value": "917013539950" },
-        { "name": "DB_HOSTS", "value": "aws-1-ap-south-1.pooler.supabase.com,aws-0-ap-south-1.pooler.supabase.com" },
+        { "name": "DB_HOSTS", "value": "aws-0-ap-south-1.pooler.supabase.com,aws-1-ap-south-1.pooler.supabase.com" },
         { "name": "CHROME_PATH", "value": "/usr/bin/chromium" }
       ],
       "secrets": [
