@@ -292,7 +292,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       case 'add_shop':
         return startExtraShop(tx, sender.phone);
       case 'refer':
-        return referralReply(tx, shop.id, botPhone);
+        return referralReply(tx, shop.id, { botPhone, dashboardUrl: opts.dashboardUrl });
       case 'import_help':
         return text('📦 Send your item list as an Excel (.xlsx) or CSV file here. Column titles in the first row: *Item name*, Unit, HSN, GST %, Buy price, Sell price, Stock qty.');
       case 'recharge':

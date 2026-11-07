@@ -86,4 +86,11 @@ describe('outbound body', () => {
     expect(action.buttons.every((b) => b.reply.title.length <= 20)).toBe(true);
     expect(((body.interactive as { body: { text: string } }).body.text).length).toBe(1024);
   });
+
+  it('sends a picture by its public link, with the caption cut to 1024', () => {
+    const body = toCloudApiBody({ kind: 'image', to: '919876543210', link: 'https://app.example.test/p.jpg', caption: 'y'.repeat(1500) });
+    expect(body.type).toBe('image');
+    expect((body.image as { link: string; caption: string }).link).toBe('https://app.example.test/p.jpg');
+    expect((body.image as { caption: string }).caption).toHaveLength(1024);
+  });
 });

@@ -12,7 +12,9 @@ export type OutboundMessage =
   | { kind: 'text'; to: string; text: string; fallbackTemplate?: { name: string; language: string; params: string[] } }
   | { kind: 'template'; to: string; name: string; language: string; params: string[] }
   // A stored file (fileId) is uploaded to Meta at send time, which turns it into a mediaId.
-  | { kind: 'document'; to: string; caption?: string; filename: string; mediaId?: string; fileId?: string };
+  | { kind: 'document'; to: string; caption?: string; filename: string; mediaId?: string; fileId?: string }
+  // A picture Meta fetches from a public https address (the referral poster on the dashboard site).
+  | { kind: 'image'; to: string; link: string; caption?: string };
 
 export interface SendResult { waMessageId: string }
 
@@ -72,6 +74,8 @@ export function toCloudApiBody(msg: OutboundMessage): Record<string, unknown> {
     case 'document':
       if (!msg.mediaId) throw new Error('document has no mediaId: upload it first');
       return { ...base, type: 'document', document: { id: msg.mediaId, filename: msg.filename, caption: msg.caption?.slice(0, 1024) } };
+    case 'image':
+      return { ...base, type: 'image', image: { link: msg.link, ...(msg.caption ? { caption: msg.caption.slice(0, 1024) } : {}) } };
   }
 }
 

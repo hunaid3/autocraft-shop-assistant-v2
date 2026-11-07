@@ -16,7 +16,7 @@ const S = await newShop('Murtaza Electronics', '36');
 await admin.query("update tenants set gstin = '36AAACM1234K1ZQ', upi_id = 'murtaza@okhdfcbank', address = 'Abids, Hyderabad' where id = $1", [S.tenantId]).catch(() => {});
 await admin.query("update platform_settings set value = jsonb_build_array($1::text) where key = 'admin_phones'", [S.ownerPhone]);
 const app = buildServer({ pool: engine, appSecret: APP_SECRET, verifyToken: VERIFY_TOKEN, phoneNumberId: PHONE_NUMBER_ID, logLevel: 'silent', dashboard: { fileStore: new MemoryFileStore() } });
-const TYPES: Record<string, string> = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript' };
+const TYPES: Record<string, string> = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.jpg': 'image/jpeg' };
 app.get('/*', async (req, reply) => {
   const p = (req.params as { '*': string })['*'] || 'index.html';
   const file = join('web', p.includes('..') ? 'index.html' : p);

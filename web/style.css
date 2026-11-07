@@ -133,3 +133,6 @@ footer a { color: var(--muted); }
 .referral { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .referral .big { font-size: 20px; letter-spacing: 1px; }
 .btn.ghostbtn { background: #fff; color: var(--ink); border: 1px solid var(--ink); }
+.share { display: flex; gap: 12px; align-items: center; max-width: 420px; }
+.share img { border-radius: 8px; border: 1px solid var(--line); flex: 0 0 auto; object-fit: cover; }
+.share .small { display: block; margin-top: 6px; }

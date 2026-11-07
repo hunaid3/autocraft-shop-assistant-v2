@@ -263,6 +263,21 @@
 
   // ── Credits tab ──────────────────────────────────────────────────────────
   const KIND = { debit: 'Used', signup_bonus: 'Welcome credits', top_up: 'Recharge', refund: 'Refund', expiry: 'Expired', admin_adjust: 'From AutoCraft', referral: 'Referral' };
+  // Phones: share the picture with the caption (WhatsApp keeps it under the poster). Elsewhere: the text with the link.
+  async function shareReferral(ref) {
+    try {
+      const blob = await (await fetch(ref.poster)).blob();
+      const file = new File([blob], 'AutoCraft-poster.jpg', { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.clipboard.writeText(ref.share_text); } catch { /* not allowed: fine */ }
+        await navigator.share({ files: [file], text: ref.share_text });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;   // they closed the share sheet
+    }
+    window.open('https://wa.me/?text=' + encodeURIComponent(ref.share_text), '_blank', 'noopener');
+  }
   async function loadCredits() {
     const [lots, led, rinv, ref] = await Promise.all([json('/credits/lots'), json('/credits'), json('/recharge_invoices'), json('/referral')]);
     const c = SUM ? SUM.credits : { balance: 0 };
@@ -273,8 +288,12 @@
       `<div class="muted small">A new shop that joins with it gets ${ref.credits_each} extra credits, and so do you. ` +
       (ref.has_paid ? 'Yours are added as soon as they join.' : 'Yours are added with your first recharge.') + '</div>' +
       `<div class="small">Joined with your code: <b>${ref.joined}</b>${ref.earned ? ` · ${ref.earned} credits earned` : ''}${ref.pending ? ` · <b>${ref.pending} waiting</b>` : ''}</div></div>` +
-      `<a class="btn ghostbtn" href="https://wa.me/?text=${encodeURIComponent('Try AutoCraft Shop Assistant for GST bills and stock on WhatsApp. Join with my code and we both get ' + ref.credits_each + ' extra credits: ' + ref.link)}" target="_blank" rel="noopener">Share on WhatsApp</a></div>` +
+      `<div class="share"><img src="${esc(ref.poster)}" alt="AutoCraft poster" width="72" height="90">` +
+      `<div><button type="button" class="btn" id="shareRef">Share poster on WhatsApp</button>` +
+      `<div class="muted small">The poster goes with your link; one tap opens WhatsApp with your code filled in.</div>` +
+      `<a class="small" href="${esc(ref.poster)}" download="AutoCraft-poster.jpg">Download poster</a></div></div></div>` +
       '<div class="note">Bill 3 · bill photo read 3 · quote 1 · typed entry 1 · stock out 1 · staff 25 · item list upload 10 (up to 10 items) or 25 (more than 10) · questions and reports free.</div>';
+    $('shareRef').addEventListener('click', () => shareReferral(ref));
     const soon = Date.now() + 30 * 86400000;
     $('lotTbl').innerHTML = table([
       { h: 'From', f: (x) => esc(KIND[x.source] || x.source) },

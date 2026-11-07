@@ -73,12 +73,19 @@ describe('referral codes', () => {
   const B = randomPhone();
   let a = ''; let b = ''; let codeA = '';
 
-  it('every shop has a fixed code with a share link', async () => {
+  it('every shop has a fixed code; *refer* sends the common poster with a one-tap link in the caption', async () => {
     a = (await signUp(A, 'Referrer Mobiles')).tenant;
-    const r = await say(A, 'refer');
+    const out = (await send(A, text(A, 'refer'))).filter((m) => m.to === A);
     codeA = await codeOf(A);
-    expect(r).toContain(`https://wa.me/917013539950?text=Hi+REF-${codeA}`);
-    expect(r).toContain('added with your first recharge');
+    expect(out).toHaveLength(2);
+    const poster = out[0] as Extract<OutboundMessage, { kind: 'image' }>;
+    expect(poster.kind).toBe('image');
+    expect(poster.link).toBe('https://app.example.test/referral-poster.jpg?v=1');
+    expect(poster.caption).toContain(`👉 *Tap to start:* https://wa.me/917013539950?text=Hi+REF-${codeA}`);
+    expect(poster.caption).toContain('100 free credits to start + 15 extra with my invite');
+    const note = 'text' in out[1]! ? out[1].text : '';
+    expect(note).toContain('Forward the poster above');
+    expect(note).toContain('added with your first recharge');
     expect(await codeOf(A)).toBe(codeA);
     expect(referralCodeIn(`Hi REF-${codeA}`)).toBe(codeA);
     expect(referralCodeIn(codeA.toLowerCase())).toBe(codeA);
@@ -143,7 +150,8 @@ describe('referral codes', () => {
     const link = /#login=([A-Za-z0-9_-]+)/.exec(await say(A, 'dashboard'))![1]!;
     const session = (await app.inject({ method: 'POST', url: '/api/session', payload: { token: link } })).json().session;
     const ref = (await app.inject({ method: 'GET', url: '/api/referral', headers: { authorization: `Bearer ${session}` } })).json();
-    expect(ref).toMatchObject({ code: codeA, joined: 2, credits_each: 15, has_paid: true });
+    expect(ref).toMatchObject({ code: codeA, joined: 2, credits_each: 15, has_paid: true, poster: '/referral-poster.jpg?v=1' });
+    expect(ref.share_text).toContain(`https://wa.me/917013539950?text=Hi+REF-${codeA}`);
     const list = (await app.inject({ method: 'GET', url: '/api/admin/referrals', headers: { authorization: `Bearer ${session}` } })).json().rows;
     expect(list.some((r: { referred: string; referrer_status: string }) => r.referred === 'Joiner Electronics' && r.referrer_status === 'granted')).toBe(true);
   });
