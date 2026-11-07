@@ -48,16 +48,16 @@ describe('how-to videos', () => {
     await tap(P, 'START'); await send(P, text(P, 'Video Test Mobiles')); await tap(P, 'SKIP'); await send(P, text(P, 'Telangana')); await tap(P, 'SKIP');
     const done = await send(P, text(P, 'yes'));
     const link = done.find((m) => m.kind === 'link') as Extract<OutboundMessage, { kind: 'link' }>;
-    expect(link).toMatchObject({ button: '▶️ Watch now', url: 'https://youtu.be/BP9aeg2uR00' });
-    expect(toCloudApiBody(link)).toMatchObject({ type: 'interactive', interactive: { type: 'cta_url', action: { name: 'cta_url', parameters: { display_text: '▶️ Watch now', url: 'https://youtu.be/BP9aeg2uR00' } } } });
+    expect(link).toMatchObject({ button: '▶️ Watch now', url: 'https://youtu.be/AUPg5XQzNF8' });
+    expect(toCloudApiBody(link)).toMatchObject({ type: 'interactive', interactive: { type: 'cta_url', action: { name: 'cta_url', parameters: { display_text: '▶️ Watch now', url: 'https://youtu.be/AUPg5XQzNF8' } } } });
   });
 
   it('*videos* lists the chapters that have a link; picking one sends it', async () => {
     const [menu] = await send(P, text(P, 'videos'));
     const rows = (menu as Extract<OutboundMessage, { kind: 'list' }>).rows;
-    expect(rows.map((r) => r.id)).toEqual(['VIDEO:1', 'VIDEO:2', 'VIDEO:3', 'VIDEO:4', 'VIDEO:5', 'VIDEO:6', 'VIDEO:7', 'VIDEO:8', 'VIDEO:9']);
+    expect(rows.map((r) => r.id)).toEqual(['VIDEO:2', 'VIDEO:3', 'VIDEO:4', 'VIDEO:5', 'VIDEO:6', 'VIDEO:7', 'VIDEO:8', 'VIDEO:9', 'VIDEO:10']);
     const [v] = await pick(P, 'VIDEO:7');
-    expect(v).toMatchObject({ kind: 'link', url: 'https://youtu.be/RuSfDWINA8o' });
+    expect(v).toMatchObject({ kind: 'link', url: 'https://youtu.be/E2tunJHNNNo' });
     expect((v as { text: string }).text).toContain('Staff');
   });
 
@@ -66,11 +66,11 @@ describe('how-to videos', () => {
     expect((help[0] as Extract<OutboundMessage, { kind: 'list' }>).rows.map((r) => r.id)).toContain('HELP:videos');
     const staff = await tap(P, 'HELP:staff');
     expect(staff.map((m) => m.kind)).toEqual(['buttons', 'link']);
-    expect(staff[1]).toMatchObject({ url: 'https://youtu.be/RuSfDWINA8o' });
+    expect(staff[1]).toMatchObject({ url: 'https://youtu.be/E2tunJHNNNo' });
   });
 
   it('a chapter without a link yet falls back to the list; no setting → no video, nothing breaks', async () => {
-    const [v] = await pick(P, 'VIDEO:10');
+    const [v] = await pick(P, 'VIDEO:1');
     expect(v!.kind).toBe('list');
     const old = (await admin.query("select value from platform_settings where key = 'how_to_videos'")).rows[0].value;
     await admin.query("update platform_settings set value = '{}'::jsonb where key = 'how_to_videos'");
