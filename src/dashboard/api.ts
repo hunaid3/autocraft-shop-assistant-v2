@@ -13,6 +13,7 @@ import { withTenant, withoutTenant, type Tx } from '../db/tenantTx.js';
 import { istDate } from '../domain/format.js';
 import type { FileStore } from '../documents/fileStore.js';
 import { registerSettings } from './settings.js';
+import { shareLink } from '../engine/referral.js';
 import { registerAdmin } from './admin.js';
 import { DEFAULT_TALLY, gstSalesRegister, partiesCsv, tallySalesXml, zohoInvoicesCsv, type ExportInvoice } from '../exports/accounting.js';
 
@@ -277,6 +278,12 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
 
   registerSettings(app, { pool, fileStore: deps.fileStore, auth });
   registerAdmin(app, { pool, fileStore: deps.fileStore, adminOnly, range });
+
+  app.get('/api/referral', { preHandler: auth }, async (req) => inShop(req, async (tx) => {
+    const { rows: [r] } = await tx.query('select * from app.referral_status($1)', [req.session!.tenantId]);
+    const { rows: [c] } = await tx.query("select value::text::int as n from platform_settings where key = 'referral_credits'");
+    return { ...r, credits_each: c?.n ?? 15, link: shareLink(r.code) };
+  }));
 
   app.get('/api/credits/lots', { preHandler: auth }, async (req) => inShop(req, async (tx) => ({
     rows: (await tx.query(`select source, credits_granted, credits_remaining, expires_at, created_at from credit_lots where credits_remaining > 0 order by expires_at`)).rows

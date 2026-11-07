@@ -129,3 +129,7 @@ footer a { color: var(--muted); }
   table.stack td.r { white-space: normal; }
 }
 .settings label .note { font-weight: 400; }
+
+.referral { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.referral .big { font-size: 20px; letter-spacing: 1px; }
+.btn.ghostbtn { background: #fff; color: var(--ink); border: 1px solid var(--ink); }

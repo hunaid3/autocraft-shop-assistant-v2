@@ -163,6 +163,13 @@ Phase 2, slice 1 (core loop):
       no setting changed) pauses replies to it for an hour (`reply_mutes`, settings in `platform_settings.reply_guard`;
       a shop's own number gets one line saying so); admin block list (`blocked_numbers`). Blocked, paused and ignored
       messages are still stored. Admin tab lists them with Unblock / Resume.
+- [x] **Referral codes:** one fixed code per GSTIN (or owner number without one) in `referral_codes`; *refer* on
+      WhatsApp, Credits tab and Admin tab. A new shop signing up with a code ("Hi REF-ACXXXXXX" from the share link, or
+      sent any time before Create) and the referrer each get 15 credits (`platform_settings.referral_credits`): at once
+      for a shop that has paid before, otherwise collected and added with its first paid recharge. Only for a new
+      number and GSTIN; never your own code.
+- [x] **₹1 live-test pack** (`credit_packs.admin_only`), shown only to admin numbers.
+- [x] **Razorpay live keys** in Vault (7 Nov).
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

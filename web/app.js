@@ -264,11 +264,16 @@
   // ── Credits tab ──────────────────────────────────────────────────────────
   const KIND = { debit: 'Used', signup_bonus: 'Welcome credits', top_up: 'Recharge', refund: 'Refund', expiry: 'Expired', admin_adjust: 'From AutoCraft', referral: 'Referral' };
   async function loadCredits() {
-    const [lots, led, rinv] = await Promise.all([json('/credits/lots'), json('/credits'), json('/recharge_invoices')]);
+    const [lots, led, rinv, ref] = await Promise.all([json('/credits/lots'), json('/credits'), json('/recharge_invoices'), json('/referral')]);
     const c = SUM ? SUM.credits : { balance: 0 };
     $('creditBox').innerHTML = `<div class="credit-head"><div><div class="muted small">Balance</div><div class="big">${c.balance} credits</div>` +
       `<div class="muted small">1 credit = ₹1 · each recharge lasts 24 months · older credits are used first</div></div>` +
       `<a class="btn" href="https://wa.me/${BOT}?text=recharge" target="_blank" rel="noopener">Recharge on WhatsApp</a></div>` +
+      `<div class="referral"><div><div class="muted small">Your referral code</div><div class="big">${esc(ref.code)}</div>` +
+      `<div class="muted small">A new shop that joins with it gets ${ref.credits_each} extra credits, and so do you. ` +
+      (ref.has_paid ? 'Yours are added as soon as they join.' : 'Yours are added with your first recharge.') + '</div>' +
+      `<div class="small">Joined with your code: <b>${ref.joined}</b>${ref.earned ? ` · ${ref.earned} credits earned` : ''}${ref.pending ? ` · <b>${ref.pending} waiting</b>` : ''}</div></div>` +
+      `<a class="btn ghostbtn" href="https://wa.me/?text=${encodeURIComponent('Try AutoCraft Shop Assistant for GST bills and stock on WhatsApp. Join with my code and we both get ' + ref.credits_each + ' extra credits: ' + ref.link)}" target="_blank" rel="noopener">Share on WhatsApp</a></div>` +
       '<div class="note">Bill 3 · bill photo read 3 · quote 1 · typed entry 1 · stock out 1 · staff 25 · item list upload 10 (up to 10 items) or 25 (more than 10) · questions and reports free.</div>';
     const soon = Date.now() + 30 * 86400000;
     $('lotTbl').innerHTML = table([
@@ -367,8 +372,8 @@
   // ── Admin tab (AutoCraft team only) ──────────────────────────────────────
   async function loadAdmin() {
     const per = '?period=' + PERIOD;
-    const [sum, shops, support, jobs, pays, use, nums] = await Promise.all([json('/admin/summary' + per), json('/admin/shops'), json('/admin/support?status=open'),
-      json('/admin/jobs'), json('/admin/payments' + per), json('/admin/usage' + per), json('/admin/numbers')]);
+    const [sum, shops, support, jobs, pays, use, nums, refs] = await Promise.all([json('/admin/summary' + per), json('/admin/shops'), json('/admin/support?status=open'),
+      json('/admin/jobs'), json('/admin/payments' + per), json('/admin/usage' + per), json('/admin/numbers'), json('/admin/referrals')]);
     const mutedNow = nums.rows.filter((r) => r.kind === 'muted' && Date.parse(r.until) > Date.now());
     const tile = (l, v, n, alert) => `<div class="kpi${alert ? ' alert' : ''}"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div><div class="n">${esc(n)}</div></div>`;
     const totalAi = use.rows.reduce((a, r) => a + Number(r.ai_cost_paise), 0);
@@ -422,6 +427,13 @@
         { h: 'Credits used', r: 1, f: (u) => u.credits_used }
       ], use.rows, 'No shops yet.') +
       `<div class="note">AI cost uses $${use.prices.usd_per_m_input} / $${use.prices.usd_per_m_output} per million tokens (input / output) at ₹${use.prices.inr_per_usd} per dollar. Replies inside the 24-hour chat window are free on WhatsApp; paid templates are counted separately.</div>` +
+      `<h3>Referrals <small>· ${refs.rows.length}</small></h3>` + table([
+        { h: 'When', f: (r) => fdate(r.created_at, true) },
+        { h: 'Code', f: (r) => esc(r.code) },
+        { h: 'Referred by', f: (r) => esc(r.referrer || 'closed shop') + ` <span class="tag ${r.referrer_status === 'granted' ? 'ok' : 'open'}">${r.referrer_status === 'granted' ? 'added' : 'waiting'}</span>` },
+        { h: 'New shop', f: (r) => esc(r.referred || 'closed shop') + ` <span class="tag ${r.joiner_status === 'granted' ? 'ok' : 'open'}">${r.joiner_status === 'granted' ? 'added' : 'waiting'}</span>` },
+        { h: 'Credits each', r: 1, f: (r) => r.credits }
+      ], refs.rows, 'No referrals yet.') +
       `<h3>Blocked and paused numbers <small>· ${nums.rows.filter((r) => r.kind === 'blocked').length} blocked · ${mutedNow.length} paused now</small></h3>` +
       '<div class="tools"><input type="search" id="blockPhone" placeholder="Number to block, e.g. 919876543210" aria-label="Number to block" inputmode="tel">' +
       '<button class="csv" data-block="1">Block number</button></div>' + table([

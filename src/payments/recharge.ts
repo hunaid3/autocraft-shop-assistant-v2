@@ -16,18 +16,27 @@ const MAX_OPEN_LINKS = 5;
 const text = (t: string): Reply => ({ kind: 'text', text: t });
 const date = (d: Date | string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
 
-export async function packMenu(tx: Tx): Promise<Reply[]> {
-  const { rows: packs } = await tx.query('select code, name, price_paise, credits from credit_packs where active order by sort_order limit 3');
+/** Packs this number may buy: the ₹1 live-test pack only for AutoCraft admins. */
+const PACKS_SQL = `select code, name, price_paise, credits from credit_packs
+   where active and (not admin_only or exists (select 1 from platform_settings where key = 'admin_phones' and value ? $1))
+   order by sort_order`;
+
+export async function packMenu(tx: Tx, phone = ''): Promise<Reply[]> {
+  const { rows: packs } = await tx.query(PACKS_SQL, [phone]);
   const { rows: [w] } = await tx.query(
     "select (select balance from credit_wallets) as balance, (select coalesce(value->>'gstin', '') <> '' from platform_settings where key = 'invoice_issuer') as invoiced");
   return [{
-    kind: 'buttons',
+    kind: 'buttons' as const,
     text: `💳 *Recharge credits* (1 credit = ₹1; you have ${w?.balance ?? 0})\n\n` +
       packs.map((p) => `• ${p.name}: ₹${formatInr(Number(p.price_paise))} → *${p.credits} credits*${p.credits * 100 > Number(p.price_paise) ? ` (${p.credits - Number(p.price_paise) / 100} extra)` : ''}`).join('\n') +
       (w?.invoiced ? '\n\nPrices include 18% GST; a GST invoice comes with every recharge.' : '') +
       '\n\nCredits last 24 months from the day you buy them; older credits are used first, so recharging early never wastes any. Pay by UPI, card or netbanking.',
     buttons: packs.map((p) => ({ id: 'PACK:' + p.code, title: `₹${formatInr(Number(p.price_paise))}` }))
-  }];
+  }].map((r): Reply => (packs.length <= 3 ? r : {
+    // more than three packs (admins see the test pack): WhatsApp buttons stop at three, so use a list
+    kind: 'list' as const, text: r.text, button: 'Choose pack', sectionTitle: 'Credit packs',
+    rows: packs.map((p) => ({ id: 'PACK:' + p.code, title: `₹${formatInr(Number(p.price_paise))} → ${p.credits} credits`.slice(0, 24), description: p.name }))
+  }));
 }
 
 export interface PreparedLink { paymentId: string; pack: { code: string; name: string; price: number; credits: number }; link?: { id: string; url: string }; error?: string }
@@ -35,7 +44,7 @@ export interface PreparedLink { paymentId: string; pack: { code: string; name: s
 /** Before the transaction: create the Razorpay link (an outside call). */
 export async function prepareLink(pool: pg.Pool, gateway: PaymentGateway | undefined, tenantId: string, phone: string, packCode: string): Promise<PreparedLink | { error: string }> {
   const info = await withTenant(pool, tenantId, async (tx) => ({
-    pack: (await tx.query('select code, name, price_paise, credits from credit_packs where code = $1 and active', [packCode])).rows[0],
+    pack: (await tx.query(`select * from (${PACKS_SQL}) p where code = $2`, [phone, packCode])).rows[0],
     shop: (await tx.query('select name from tenants where id = $1', [tenantId])).rows[0],
     open: (await tx.query("select count(*)::int as n from payments where status = 'created' and created_at > now() - interval '24 hours'")).rows[0].n as number
   }));
@@ -92,12 +101,15 @@ export async function handleRazorpayEvent(pool: pg.Pool, event: { event?: string
       await enqueue(tx, `recharge-invoice:${inv.id}`,
         { kind: 'recharge_invoice_pdf', tenant_id: p.tenant_id, invoice_id: inv.id, notify_phone: p.requester_phone ?? null } satisfies RechargeInvoicePayload, 'documents');
     }
+    // Referral credits that were waiting for this shop's first recharge
+    const { rows: [rel] } = await tx.query('select app.release_referral_rewards($1) as n', [p.tenant_id]);
     const { rows: [w] } = await tx.query(
       `select (select balance from credit_wallets) as balance,
               (select expires_at from credit_lots where payment_id = $1) as expires_at`, [p.payment_id]);
     if (p.requester_phone) {
       const receipt = `✅ *Payment received*: ₹${formatInr(Number(p.amount_paise))}\n` +
         `${c} credits added (${p.pack_code} pack), valid till ${date(w.expires_at)}.\n` +
+        (rel.n ? `🎁 Plus *${rel.n} referral credits* that were waiting for your first recharge.\n` : '') +
         `Balance: *${w.balance} credits*\n\nRazorpay payment ID: ${paymentId}\n` +
         (inv.id ? 'Your GST tax invoice (PDF) follows. You can also download it from the dashboard. Thank you!' : 'Keep this message as your receipt. Thank you!');
       const { rows: [m] } = await tx.query(

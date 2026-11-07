@@ -22,7 +22,7 @@ export class AiUnavailableError extends Error {}
 export interface AiUsage { kind: 'text' | 'bill'; tenantId?: string; promptTokens: number; completionTokens: number; model: string }
 
 // Questions about using the assistant itself (not an entry): each maps to an existing reply
-export const FEATURES = ['item_upload', 'add_shop', 'switch_shop', 'staff', 'recharge', 'credits_prices', 'dashboard', 'support', 'shop_details', 'bills_help', 'purchases_help', 'stock_out_help'] as const;
+export const FEATURES = ['item_upload', 'add_shop', 'switch_shop', 'staff', 'recharge', 'credits_prices', 'dashboard', 'support', 'shop_details', 'bills_help', 'purchases_help', 'stock_out_help', 'referral'] as const;
 
 export interface AiParserOptions {
   apiKey: string;
@@ -117,7 +117,7 @@ export function systemPrompt(ctx: ParseContext, maxCatalog: number): string {
     '  switch_shop (move between my shops), staff (add/remove staff, give an employee access), recharge (buy credits, pay, top up),',
     '  credits_prices (what things cost, how credits work, validity), dashboard (web login, reports online, export to Excel/Tally/Zoho),',
     '  support (a problem, complaint, talk to a person), shop_details (my address, GSTIN, UPI, logo, bank details, invoice prefix),',
-    '  bills_help (how to make a bill or quote), purchases_help (how to enter purchases or add stock), stock_out_help (samples, damage, returns).',
+    '  referral (my referral code, refer another shop, referral credits), bills_help (how to make a bill or quote), purchases_help (how to enter purchases or add stock), stock_out_help (samples, damage, returns).',
     '- unknown: anything else; put a short question in clarification if one detail is missing.',
     '',
     'Rules:',
@@ -179,6 +179,7 @@ function toIntent(o: Out): Intent {
         case 'bills_help': return { type: 'help_topic', topic: 'bills' };
         case 'purchases_help': return { type: 'help_topic', topic: 'purchases' };
         case 'stock_out_help': return { type: 'help_topic', topic: 'stockout' };
+        case 'referral': return { type: 'refer' };
         default: return { type: 'help' };
       }
     case 'unknown': return { type: 'unknown', hint: o.clarification ?? undefined };

@@ -66,6 +66,7 @@ export type Intent =
   | { type: 'switch_shop' }
   | { type: 'add_shop' }
   | { type: 'import_help' }
+  | { type: 'refer' }
   | { type: 'help_topic'; topic: import('./help.js').HelpTopic }
   | { type: 'support'; problem?: string }
   | { type: 'staff_remove'; who: string }

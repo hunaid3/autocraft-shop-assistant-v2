@@ -80,7 +80,8 @@ const TOPICS: Record<HelpTopic, Topic> = {
       '• Bill with PDF: 3\n• Bill read from a photo/PDF: 3\n• Quote: 1\n• Typed purchase / expense / stock entry: 1\n' +
       '• Stock out without a bill: 1 (returns free)\n• Staff: 25 each\n• Item list upload: 10 (up to 10 items) or 25 (more than 10)\n' +
       '• Questions, reports, help, shop details: free\n\n' +
-      'Credits last 24 months; older credits are used first. Type *credits* for your balance, *recharge* to buy more.',
+      'Credits last 24 months; older credits are used first. Type *credits* for your balance, *recharge* to buy more.\n\n' +
+      '🎁 *refer*: your referral code. A new shop that joins with it gets 15 extra credits, and so do you.',
     buttons: [['RECHARGE', '💳 Recharge']]
   },
   support: {

@@ -13,7 +13,7 @@ import type { InboundMessage } from '../webhook/parse.js';
 import type { Reply } from './router.js';
 
 type Step = 'intro' | 'name' | 'gstin' | 'state' | 'upi' | 'confirm';
-interface Answers { name?: string; gstin?: string; stateCode?: string; stateName?: string; upi?: string; extra?: boolean }
+interface Answers { name?: string; gstin?: string; stateCode?: string; stateName?: string; upi?: string; extra?: boolean; ref?: string; refShop?: string }
 
 const text = (t: string): Reply => ({ kind: 'text', text: t });
 const buttons = (t: string, b: Array<[string, string]>): Reply => ({ kind: 'buttons', text: t, buttons: b.map(([id, title]) => ({ id, title })) });
@@ -58,7 +58,17 @@ function summary(a: Answers): string {
     `• Shop: *${a.name}*\n` +
     `• GSTIN: ${a.gstin ?? 'none (bills will be *bills of supply*, no GST)'}\n` +
     `• State: ${a.stateName} (${a.stateCode})\n` +
-    `• UPI: ${a.upi ?? 'not set'}`;
+    `• UPI: ${a.upi ?? 'not set'}\n` +
+    (a.ref ? `• Referral: ${a.ref} from *${a.refShop}* (${REFERRAL_CREDITS} extra credits each, added with your first recharge)`
+      : '• Referral code: none (have one? send it now)');
+}
+
+const REFERRAL_CREDITS = 15;
+/** "REF-AC7K2QM", "ref ac7k2q…", or the bare code alone */
+export function referralCodeIn(text: string | undefined): string | null {
+  const t = (text ?? '').trim();
+  const m = /\bREF[-\s:#]*(AC[2-9A-HJ-NP-Z]{6})\b/i.exec(t) ?? /^(AC[2-9A-HJ-NP-Z]{6})$/i.exec(t);
+  return m ? m[1]!.toUpperCase() : null;
 }
 
 async function bonusFor(tx: Tx, phone: string, gstin?: string): Promise<number | null> {
@@ -93,10 +103,15 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
   const { rows: [s] } = await tx.query(
     `select step, answers, expires_at < now() as expired, coalesce(intro_sent_at > now() - interval '24 hours', false) as intro_recent
        from signup_sessions where phone = $1 for update`, [phone]);
-  const save = (step: Step, a: Answers) => tx.query(
+  const save = (step: Step, a0: Answers) => {
+    // a referral code given earlier stays with the answers through every step
+    const prev = (s && !s.expired ? s.answers : {}) as Answers;
+    const a: Answers = { ...a0, ref: a0.ref ?? captured.ref ?? prev.ref, refShop: a0.refShop ?? captured.refShop ?? prev.refShop };
+    return tx.query(
     `insert into signup_sessions (phone, step, answers, expires_at) values ($1, $2, $3, now() + interval '24 hours')
      on conflict (phone) do update set step = excluded.step, answers = excluded.answers, expires_at = excluded.expires_at`,
     [phone, step, JSON.stringify(a)]);
+  };
 
   if (said(m, /^(cancel|stop|exit|quit)$/) || id(m) === 'NOTNOW') {
     const wasExtra = Boolean((s?.answers as Answers | undefined)?.extra);
@@ -105,7 +120,37 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
   }
 
   const wantsStart = id(m) === 'START' || said(m, /^(start|start free|register|sign ?up|join|yes|create shop)$/);
-  const introCard = async () => buttons(intro(await bonusFor(tx, phone)), [['START', '🚀 Start'], ['NOTNOW', 'Not now']]);
+  const introCard = async () => buttons(intro(await bonusFor(tx, phone)), [['START', '🚀 Start'], ['NOTNOW', 'Not now']]) as Extract<Reply, { kind: 'buttons' }>;
+  // A referral code can come with the first "Hi" (from a shared link) or at any point before the shop is created
+  const refCode = m.kind === 'text' ? referralCodeIn(m.text) : null;
+  let refNote = '';
+  let captured: Pick<Answers, 'ref' | 'refShop'> = {};
+  if (refCode && !(s?.answers as Answers | undefined)?.extra) {
+    const { rows: [r] } = await tx.query('select * from app.referral_lookup($1)', [refCode]);
+    if (!r) refNote = `⚠️ ${refCode} is not a referral code I know. Check it with the shop that shared it, or carry on without it.`;
+    else {
+      const prev = (s && !s.expired ? s.answers : {}) as Answers;
+      captured = { ref: refCode, refShop: r.shop };
+      await tx.query(
+        `insert into signup_sessions (phone, step, answers, expires_at) values ($1, $2, $3, now() + interval '24 hours')
+         on conflict (phone) do update set answers = excluded.answers, expires_at = excluded.expires_at`,
+        [phone, s && !s.expired ? s.step : 'intro', JSON.stringify({ ...prev, ref: refCode, refShop: r.shop })]);
+      if (s && !s.expired) (s.answers as Answers) = { ...prev, ref: refCode, refShop: r.shop };
+      refNote = `🎁 Referral code ${refCode} from *${r.shop}* noted: you both get ${REFERRAL_CREDITS} extra credits, added with your first recharge.`;
+    }
+    const stepNow = s && !s.expired ? (s.step as Step) : 'intro';
+    if (stepNow === 'confirm') {
+      const a2 = s!.answers as Answers;
+      return [buttons(refNote + '\n\n' + summary(a2), [['CREATE', '✅ Create shop'], ['RESTART', '↩️ Start over']])];
+    }
+    if (stepNow !== 'intro') return [text(refNote + '\n\nPlease carry on with the last question.')];
+    if (!GREETING.test(m.text ?? '')) {
+      // just the code: show the welcome card with the note
+      await tx.query("update signup_sessions set step = 'intro', intro_sent_at = now() where phone = $1", [phone]);
+      const card = await introCard();
+      return [{ ...card, text: refNote + '\n\n' + card.text }];
+    }
+  }
   // The welcome card goes out at most once a day, unless the person greets us or taps a button: banks,
   // adverts and other bots that keep messaging get silence instead of a card each time.
   const notTalkingToUs = !wantsStart && m.kind !== 'button' && !GREETING.test(m.text ?? '');
@@ -115,7 +160,8 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
   const sendIntro = async () => {
     await save('intro', {});
     await tx.query('update signup_sessions set intro_sent_at = now() where phone = $1', [phone]);
-    return [await introCard()];
+    const card = await introCard();
+    return [refNote ? { ...card, text: refNote + '\n\n' + card.text } : card];
   };
   if (!s || s.expired) {
     if (wantsStart) { await save('name', {}); return [text(ASK_NAME)]; }
@@ -195,14 +241,30 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
         return [text('This number already belongs to a shop. One number can be in several shops only when each shop has its own GSTIN, so please use a different WhatsApp number for this shop.')];
       }
       const bonus = await bonusFor(tx, phone, a.gstin);
-      await tx.query('select app.provision_tenant($1, $2, $3, $4, $5, null, null, $6) as id',
+      const first = (await tx.query('select app.welcome_available($1, $2) as ok', [phone, a.gstin ?? null])).rows[0].ok as boolean;
+      const { rows: [t] } = await tx.query('select app.provision_tenant($1, $2, $3, $4, $5, null, null, $6) as id',
         [phone, m.profileName?.slice(0, 80) ?? null, a.name, a.stateCode, a.gstin ?? null, a.upi ?? null]);
       await tx.query('delete from signup_sessions where phone = $1', [phone]);
       const credits = bonus
         ? `you have *${bonus} free credits*`
         : 'this number (or GSTIN) has already had its welcome credits, so the shop starts at 0 credits. Send *recharge* to add some';
+      let refLine = '';
+      if (a.ref && !extra) {
+        const { rows: [r] } = await tx.query('select * from app.apply_referral($1, $2, $3)', [t.id, a.ref, first]);
+        if (r?.reason === 'ok') {
+          refLine = `🎁 Referral from *${r.referrer_name}*: ${r.credits} extra credits are waiting for you and get added with your first recharge.\n\n`;
+          await tx.query('select app.queue_owner_text($1, $2, $3)', [r.referrer_tenant, r.referrer_phone,
+            `🎉 *${a.name}* just joined AutoCraft with your referral code.\n\n` + (r.referrer_now
+              ? `${r.credits} credits have been added to your balance. Thank you!`
+              : `${r.credits} credits are waiting for you (${r.referrer_pending} in total) and get added with your first recharge. Send *recharge* any time.`)]);
+        } else if (r?.reason === 'not_new') {
+          refLine = 'ℹ️ The referral code was not applied: referral credits are only for a number and GSTIN that are new to AutoCraft.\n\n';
+        } else if (r?.reason === 'self') {
+          refLine = "ℹ️ The referral code was not applied: it's your own shop's code.\n\n";
+        }
+      }
       return [
-        text(`🎉 *${a.name}* is ready! You are the owner, and ${credits}.\n\n` +
+        text(`🎉 *${a.name}* is ready! You are the owner, and ${credits}.\n\n` + refLine +
           (extra ? 'You are now working in this shop. Send *switch shop* to go back to your other shop.\n\n' : '') +
           'Try your first entry now:\n' +
           '📥 *bought* 50 airdopes @ 850 from Sharma Traders (adds stock)\n' +

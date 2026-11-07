@@ -84,6 +84,7 @@ export function registerAdmin(app: FastifyInstance, deps: {
   });
 
   // Reply guard: blocked and muted numbers
+  app.get('/api/admin/referrals', { preHandler: adminOnly }, async () => ({ rows: await q('select * from app.admin_referrals()') }));
   app.get('/api/admin/numbers', { preHandler: adminOnly }, async () => ({ rows: await q('select * from app.admin_reply_guard_list()') }));
   app.post('/api/admin/numbers/block', { preHandler: adminOnly }, async (req, reply) => {
     const b = (req.body ?? {}) as { phone?: unknown; reason?: unknown };

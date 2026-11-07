@@ -9,6 +9,7 @@
  * Confirm runs in a savepoint: a refusal the person must read (not enough credits, bill already
  * entered, stock blocked) rolls back just the commit and is answered, instead of failing the job.
  */
+import { referralReply } from './referral.js';
 import { withTenant } from '../db/tenantTx.js';
 import { istDate } from '../domain/format.js';
 import type { FileStore } from '../documents/fileStore.js';
@@ -290,10 +291,12 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
         return [shopPicker(allShops, sender.tenantName)];
       case 'add_shop':
         return startExtraShop(tx, sender.phone);
+      case 'refer':
+        return referralReply(tx, shop.id, botPhone);
       case 'import_help':
         return text('📦 Send your item list as an Excel (.xlsx) or CSV file here. Column titles in the first row: *Item name*, Unit, HSN, GST %, Buy price, Sell price, Stock qty.');
       case 'recharge':
-        return packMenu(tx);
+        return packMenu(tx, sender.phone);
       case 'dashboard': {
         const link = await createLoginLink(tx, shop.id, sender.userId, opts.dashboardUrl ?? 'https://app.autocraft-solutions.com');
         return text(`📊 Your dashboard: ${link}\n\nThe link works once, within ${LINK_MINUTES} minutes. That browser then stays signed in for 30 days. Don't forward it: it opens your shop's data.`);
