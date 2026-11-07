@@ -36,7 +36,7 @@ describe('OpenAiParser', () => {
         { name: 'USB-C Cable', qty: '2', unit: undefined, ratePaise: 19950, discountPaise: undefined, gstRate: undefined }
       ]
     });
-    expect(usage).toEqual([{ promptTokens: 1400, completionTokens: 60, model: 'gpt-6-luna' }]);
+    expect(usage).toEqual([{ kind: 'text', tenantId: undefined, promptTokens: 1400, completionTokens: 60, model: 'gpt-6-luna' }]);
 
     const req = calls[0]!;
     expect(req.url).toBe('https://api.openai.com/v1/chat/completions');

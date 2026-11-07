@@ -80,7 +80,7 @@ export function zohoInvoicesCsv(invs: ExportInvoice[]): string {
       rows.push([v.date, v.number, 'Sent', v.customer ?? 'Cash', v.customer_gstin ? 'business_registered_regular' : 'consumer', v.customer_gstin ?? '',
         ZOHO_STATE[v.place_of_supply] ?? v.place_of_supply, 'INR', l.item_name, '', l.hsn ?? '', qty(l.qty), l.unit, rs(l.rate_paise), rs(l.discount_paise),
         'false', `${inter ? 'IGST' : 'GST'}${rate}`, rate, inter ? 'ItemAmount' : 'Tax Group',
-        i === 0 && n(v.round_off_paise) ? rs(v.round_off_paise) : '', i === 0 && n(v.round_off_paise) ? 'Round off' : '', v.customer_phone ?? '']);
+        i === 0 && n(v.round_off_paise) ? rs(v.round_off_paise) : '', i === 0 && n(v.round_off_paise) ? 'Round off' : '', csvPhone(v.customer_phone)]);
     });
   }
   return toCsv(header, rows);
@@ -162,6 +162,14 @@ export function tallySalesXml(invs: ExportInvoice[], opts: { ledgers?: Partial<T
     '<REQUESTDESC><REPORTNAME>Vouchers</REPORTNAME></REQUESTDESC><REQUESTDATA>\n' + out.join('\n') + '\n</REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>\n';
 }
 
+/** Phone for a spreadsheet: "91 9876543210". A leading + would make Excel read it as a formula, and a bare
+ *  12-digit number would turn into 9.18E+11, so the country code is set apart with a space. */
+export function csvPhone(p: unknown): string {
+  const d = String(p ?? '').replace(/\D/g, '');
+  if (!d) return '';
+  return d.length === 12 && d.startsWith('91') ? `91 ${d.slice(2)}` : d;
+}
+
 /** Customers or suppliers for a spreadsheet (and Zoho's contact import, which maps these columns). */
 export function partiesCsv(rows: Array<Record<string, unknown>>, kind: 'customers' | 'suppliers'): string {
   const header = ['Name', 'GSTIN', 'GST Treatment', 'Phone', 'State', 'Place of Supply', 'Address',
@@ -169,7 +177,7 @@ export function partiesCsv(rows: Array<Record<string, unknown>>, kind: 'customer
   // (No "unpaid" column: payments against bills are not recorded yet, so every bill would look unpaid.)
   return toCsv(header, rows.map((r) => [
     r.name, r.gstin ?? '', r.gstin ? 'business_registered_regular' : kind === 'customers' ? 'consumer' : 'business_unregistered',
-    r.phone ? '+' + String(r.phone) : '', r.state_name ?? '', r.state_code ? ZOHO_STATE[String(r.state_code)] ?? '' : '', r.address ?? '',
+    csvPhone(r.phone), r.state_name ?? '', r.state_code ? ZOHO_STATE[String(r.state_code)] ?? '' : '', r.address ?? '',
     r.docs, rs(r.total_paise), r.last_date ?? ''
   ]));
 }

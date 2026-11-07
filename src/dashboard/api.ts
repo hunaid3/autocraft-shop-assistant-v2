@@ -13,6 +13,7 @@ import { withTenant, withoutTenant, type Tx } from '../db/tenantTx.js';
 import { istDate } from '../domain/format.js';
 import type { FileStore } from '../documents/fileStore.js';
 import { registerSettings } from './settings.js';
+import { registerAdmin } from './admin.js';
 import { DEFAULT_TALLY, gstSalesRegister, partiesCsv, tallySalesXml, zohoInvoicesCsv, type ExportInvoice } from '../exports/accounting.js';
 
 export const LINK_MINUTES = 15;
@@ -72,8 +73,10 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
     const token = /^Bearer\s+([A-Za-z0-9_-]{20,100})$/.exec(h)?.[1];
     if (!token) return reply.code(401).send({ error: 'login required' });
     const s = await withoutTenant(pool, async (tx) => (await tx.query(
-      `update dashboard_sessions set last_seen_at = now(), expires_at = greatest(expires_at, now() + make_interval(days => $2))
-        where token_hash = $1 and revoked_at is null and expires_at > now() returning tenant_id, user_id, kind`, [sha(token), SESSION_DAYS])).rows[0]);
+      `update dashboard_sessions d set last_seen_at = now(), expires_at = greatest(d.expires_at, now() + make_interval(days => $2))
+        where d.token_hash = $1 and d.revoked_at is null and d.expires_at > now()
+          and (d.kind = 'admin' or app.shop_is_active(d.tenant_id))
+        returning d.tenant_id, d.user_id, d.kind`, [sha(token), SESSION_DAYS])).rows[0]);
     if (!s) return reply.code(401).send({ error: 'login expired' });
     req.session = { tenantId: s.tenant_id, userId: s.user_id, kind: s.kind };
   }
@@ -273,6 +276,7 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
   }
 
   registerSettings(app, { pool, fileStore: deps.fileStore, auth });
+  registerAdmin(app, { pool, fileStore: deps.fileStore, adminOnly, range });
 
   app.get('/api/credits/lots', { preHandler: auth }, async (req) => inShop(req, async (tx) => ({
     rows: (await tx.query(`select source, credits_granted, credits_remaining, expires_at, created_at from credit_lots where credits_remaining > 0 order by expires_at`)).rows

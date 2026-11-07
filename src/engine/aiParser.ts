@@ -19,6 +19,8 @@ import { REASON_HINT, SimpleParser } from './parse.js';
 
 export class AiUnavailableError extends Error {}
 
+export interface AiUsage { kind: 'text' | 'bill'; tenantId?: string; promptTokens: number; completionTokens: number; model: string }
+
 // Questions about using the assistant itself (not an entry): each maps to an existing reply
 export const FEATURES = ['item_upload', 'add_shop', 'switch_shop', 'staff', 'recharge', 'credits_prices', 'dashboard', 'support', 'shop_details', 'bills_help', 'purchases_help', 'stock_out_help'] as const;
 
@@ -28,7 +30,7 @@ export interface AiParserOptions {
   timeoutMs?: number;
   maxCatalog?: number;
   fetchImpl?: typeof fetch;        // tests inject a fake
-  onUsage?: (u: { promptTokens: number; completionTokens: number; model: string }) => void;
+  onUsage?: (u: AiUsage) => void;
 }
 
 const n = <T extends z.ZodTypeAny>(t: T) => t.nullable();
@@ -237,7 +239,7 @@ export class OpenAiParser implements Parser {
       choices?: Array<{ message?: { content?: string | null; refusal?: string | null } }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
-    if (body.usage) this.opts.onUsage?.({ promptTokens: body.usage.prompt_tokens ?? 0, completionTokens: body.usage.completion_tokens ?? 0, model: this.model });
+    if (body.usage) this.opts.onUsage?.({ kind: 'text', tenantId: ctx.tenantId, promptTokens: body.usage.prompt_tokens ?? 0, completionTokens: body.usage.completion_tokens ?? 0, model: this.model });
     const msg = body.choices?.[0]?.message;
     if (!msg?.content || msg.refusal) throw new Error('OpenAI gave no content');
     return OUT.parse(JSON.parse(msg.content));

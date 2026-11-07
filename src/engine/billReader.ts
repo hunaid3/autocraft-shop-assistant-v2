@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { toPaise } from '../domain/money.js';
 import type { LineIntent, ParseContext } from './intents.js';
+import type { AiUsage } from './aiParser.js';
 
 export interface BillImage { bytes: Buffer; mime: string }
 
@@ -103,7 +104,7 @@ export function toReading(o: z.infer<typeof OUT>): BillReading {
 }
 
 export class OpenAiBillReader implements BillReader {
-  constructor(private readonly opts: { apiKey: string; model?: string; timeoutMs?: number; fetchImpl?: typeof fetch }) {}
+  constructor(private readonly opts: { apiKey: string; model?: string; timeoutMs?: number; fetchImpl?: typeof fetch; onUsage?: (u: AiUsage) => void }) {}
 
   async read(images: BillImage[], ctx: ParseContext): Promise<BillReading> {
     const f = this.opts.fetchImpl ?? fetch;
@@ -132,7 +133,8 @@ export class OpenAiBillReader implements BillReader {
       throw new BillReaderUnavailableError(`OpenAI request failed: ${(e as Error).name}`);
     }
     if (!res.ok) throw new BillReaderUnavailableError(`OpenAI HTTP ${res.status}`);
-    const body = (await res.json()) as { choices?: Array<{ message?: { content?: string | null; refusal?: string | null } }> };
+    const body = (await res.json()) as { choices?: Array<{ message?: { content?: string | null; refusal?: string | null } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+    if (body.usage) this.opts.onUsage?.({ kind: 'bill', tenantId: ctx.tenantId, promptTokens: body.usage.prompt_tokens ?? 0, completionTokens: body.usage.completion_tokens ?? 0, model: this.opts.model ?? 'gpt-6-luna' });
     const msg = body.choices?.[0]?.message;
     if (!msg?.content || msg.refusal) throw new BillReaderUnavailableError('OpenAI gave no content');
     return toReading(OUT.parse(JSON.parse(msg.content)));

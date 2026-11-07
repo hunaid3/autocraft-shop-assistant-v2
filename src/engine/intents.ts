@@ -75,6 +75,7 @@ export type Intent =
 export interface ParseContext {
   today: string;             // YYYY-MM-DD, India
   catalog: string[];         // item names + aliases, for the AI reader's prompt
+  tenantId?: string;         // whose message (for AI usage records only; never sent to the AI)
 }
 
 export interface Parser {

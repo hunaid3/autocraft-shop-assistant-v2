@@ -151,6 +151,12 @@ Phase 2, slice 1 (core loop):
 - [x] **Customers and suppliers** tabs with GSTIN, phone, state and totals; CSV export.
 - [x] **Accounting exports** of a period's bills: TallyPrime XML (masters + balanced sales vouchers, ledger names in
       Settings), Zoho Books invoice CSV, GST sales register CSV (`src/exports/accounting.ts`).
+- [x] **Admin console, round 2** (Admin tab, admin numbers only): overview tiles for the period (shops, new sign-ups,
+      active in 7 days, recharge revenue and GST, credits sold and used, bills, estimated AI cost); all payments with
+      their GST invoice PDFs; usage per shop (messages, AI reads, tokens, estimated cost from `platform_settings.ai_prices`);
+      pause / reactivate a shop (its people get a "paused" reply, its dashboard sessions end, data kept); people per shop and
+      remove a staff member (a waiting invite is refunded); CSV of shops, payments and usage. All actions in `audit_log`
+      with `actor_kind = 'admin'`. AI token counts per call in `ai_usage`.
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

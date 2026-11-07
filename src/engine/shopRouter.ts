@@ -84,7 +84,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
 
   async function parseContext(c: PrepareContext | RouteContext, tenantId: string): Promise<ParseContext> {
     const catalog = 'tx' in c ? await loadCatalog(c.tx) : await withTenant(c.pool, tenantId, (tx) => loadCatalog(tx));
-    return { today: istDate(), catalog: catalog.flatMap((i) => [i.name, ...i.aliases]) };
+    return { today: istDate(), catalog: catalog.flatMap((i) => [i.name, ...i.aliases]), tenantId };
   }
 
   async function prepareBill(c: PrepareContext, tenantId: string): Promise<Prepared> {
@@ -151,6 +151,15 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       if (s?.type === 'support') {
         return s.problem ? captureSupport(tx, sender, null, s.problem, null)
           : text('💬 Send *support* followed by your problem in one message, e.g.\n*support my GSTIN is already registered*');
+      }
+    }
+    if (sender.kind === 'unknown') {
+      // A paused (suspended) shop's people are not new: no sign-up, just how to reach us
+      const paused = (await tx.query('select app.paused_shop($1) as name', [sender.phone])).rows[0].name as string | null;
+      if (paused) {
+        const s = message.kind === 'text' ? supportRules(message.text ?? '') : null;
+        if (s?.type === 'support' && s.problem) return captureSupport(tx, sender, null, `[paused shop ${paused}] ${s.problem}`, null);
+        return text(`⏸️ *${paused}* is paused on AutoCraft, so bills and entries are switched off for now. Your records are safe.\n\nTo talk to us, send *support* followed by your message, or email support@autocraft-solutions.com.`);
       }
     }
     if (sender.kind === 'unknown' && ['text', 'button'].includes(message.kind)) {

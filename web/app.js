@@ -366,29 +366,77 @@
 
   // ── Admin tab (AutoCraft team only) ──────────────────────────────────────
   async function loadAdmin() {
-    const [shops, support, jobs] = await Promise.all([json('/admin/shops'), json('/admin/support?status=open'), json('/admin/jobs')]);
+    const per = '?period=' + PERIOD;
+    const [sum, shops, support, jobs, pays, use] = await Promise.all([json('/admin/summary' + per), json('/admin/shops'), json('/admin/support?status=open'),
+      json('/admin/jobs'), json('/admin/payments' + per), json('/admin/usage' + per)]);
+    const tile = (l, v, n, alert) => `<div class="kpi${alert ? ' alert' : ''}"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div><div class="n">${esc(n)}</div></div>`;
+    const totalAi = use.rows.reduce((a, r) => a + Number(r.ai_cost_paise), 0);
+    const STATUS_TAG = { active: 'ok', suspended: 'out', closed: 'cancelled' };
     $('adminBox').innerHTML =
+      `<h3>AutoCraft overview <small>· ${esc(PERIOD_LABEL[PERIOD])} (${fdate(sum.from)}${sum.from !== sum.to ? ' – ' + fdate(sum.to) : ''})</small></h3>` +
+      '<section class="kpis">' +
+        tile('Shops', String(sum.shops), `${sum.active_shops} active · ${sum.suspended_shops} paused`) +
+        tile('New shops', String(sum.new_in_period), `${sum.new_7d} in 7 days · ${sum.new_30d} in 30 days`) +
+        tile('Active (7 days)', String(sum.active_7d), 'shops that messaged') +
+        tile('Recharges', short(sum.revenue_paise), `${plural(sum.paid_count, 'payment', 'payments')} · GST ${short(sum.gst_paise)}`) +
+        tile('Credits', `${sum.credits_sold} sold`, `${sum.credits_used} used`) +
+        tile('Bills made', String(sum.bills), 'all shops') +
+        tile('AI cost (est.)', rs(totalAi), 'OpenAI, this period') +
+        tile('Needs you', String(support.rows.length + jobs.rows.length), `${support.rows.length} support · ${jobs.rows.length} failed jobs`, support.rows.length + jobs.rows.length > 0) +
+      '</section>' +
       `<h3>Support requests <small>· ${support.rows.length} open</small></h3>` + table([
         { h: 'Ref', f: (r) => `SR-${String(r.ref_no).padStart(4, '0')}<div class="muted small">${fdate(r.created_at, true)}</div>` },
         { h: 'From', f: (r) => `${esc(r.tenant_name || 'not registered')}<div class="muted small">+${esc(r.phone)} ${esc(r.role || '')}</div>` },
         { h: 'Problem', f: (r) => esc(r.problem) },
         { h: '', r: 1, f: (r) => `<a class="pdf" href="https://wa.me/${esc(r.phone)}" target="_blank" rel="noopener">WhatsApp</a> <button class="pdf" data-close="${esc(r.id)}">Mark done</button>` }
       ], support.rows, 'No open requests.') +
-      `<h3>Shops <small>· ${shops.rows.length}</small></h3>` + table([
-        { h: 'Shop', f: (s) => `${esc(s.name)}<div class="muted small">${esc(s.gstin || 'no GSTIN')} · ${esc(s.state_code)}</div>` },
-        { h: 'Owner', f: (s) => `${esc(s.owner_name || '')}<div class="muted small">+${esc(s.owner_phone || '')}</div>` },
+      `<div class="tools"><h3 class="grow">Shops <small>· ${shops.rows.length}</small></h3><button class="csv" data-aexport="shops.csv">Download CSV</button></div>` + table([
+        { h: 'Shop', f: (s) => `${esc(s.name)}<div class="muted small">${esc(s.gstin || 'no GSTIN')} · ${esc(s.state_code)} · since ${fdate(s.created_at, true)}</div>` },
+        { h: 'Status', f: (s) => `<span class="tag ${STATUS_TAG[s.status] || ''}">${s.status === 'suspended' ? 'paused' : esc(s.status)}</span>` },
+        { h: 'Owner', f: (s) => `${esc(s.owner_name || '')}<div class="muted small">${s.owner_phone ? '+' + esc(s.owner_phone) : ''}</div>` },
         { h: 'Staff', r: 1, f: (s) => s.staff },
         { h: 'Credits', r: 1, f: (s) => s.credits },
         { h: 'Bills', r: 1, f: (s) => s.invoices },
         { h: 'Last message', f: (s) => (s.last_message_at ? fdate(s.last_message_at, true) : dash) },
-        { h: '', r: 1, f: (s) => `<button class="pdf" data-grant="${esc(s.tenant_id)}" data-name="${esc(s.name)}">Give credits</button>` }
+        { h: '', r: 1, f: (s) => `<button class="pdf" data-people="${esc(s.tenant_id)}" data-name="${esc(s.name)}">People</button> ` +
+            `<button class="pdf" data-grant="${esc(s.tenant_id)}" data-name="${esc(s.name)}">Give credits</button> ` +
+            (s.status === 'closed' ? '' : `<button class="pdf" data-status="${s.status === 'suspended' ? 'active' : 'suspended'}" data-shop="${esc(s.tenant_id)}" data-name="${esc(s.name)}">${s.status === 'suspended' ? 'Reactivate' : 'Pause'}</button>`) }
       ], shops.rows, 'No shops yet.') +
+      '<div id="adminPeople"></div>' +
+      `<div class="tools"><h3 class="grow">Payments <small>· ${pays.rows.length} ${esc(PERIOD_LABEL[PERIOD])}</small></h3><button class="csv" data-aexport="payments.csv">Download CSV</button></div>` + table([
+        { h: 'Date', f: (p) => fdate(p.created_at, true) },
+        { h: 'Shop', f: (p) => esc(p.shop) },
+        { h: 'Pack', f: (p) => `${esc(p.pack)} · ${p.credits} credits` },
+        { h: 'Amount', r: 1, f: (p) => '<b>' + rs(p.amount_paise) + '</b>' },
+        { h: 'Status', f: (p) => `<span class="tag ${p.status === 'paid' ? 'paid' : p.status === 'created' ? 'open' : 'expired'}">${p.status === 'created' ? 'link sent' : esc(p.status)}</span>` },
+        { h: 'Razorpay ID', f: (p) => (p.provider_payment_id ? `<span class="small">${esc(p.provider_payment_id)}</span>` : dash) },
+        { h: 'GST invoice', r: 1, f: (p) => (p.invoice_number ? (p.has_pdf ? `<button class="pdf" data-apdf="${esc(p.tenant_id)}/${esc(p.invoice_id)}">${esc(p.invoice_number)}</button>` : esc(p.invoice_number)) : dash) }
+      ], pays.rows, 'No payments in this period.') +
+      `<div class="tools"><h3 class="grow">Usage and cost <small>· ${esc(PERIOD_LABEL[PERIOD])}</small></h3><button class="csv" data-aexport="usage.csv">Download CSV</button></div>` + table([
+        { h: 'Shop', f: (u) => esc(u.shop) },
+        { h: 'Messages in / out', r: 1, f: (u) => `${u.msgs_in} / ${u.msgs_out}` + (Number(u.templates_out) ? `<div class="muted small">${u.templates_out} paid templates</div>` : '') },
+        { h: 'AI reads', r: 1, f: (u) => `${u.ai_text} text · ${u.ai_bill} bills` },
+        { h: 'Tokens', r: 1, f: (u) => `${Number(u.prompt_tokens).toLocaleString('en-IN')} + ${Number(u.completion_tokens).toLocaleString('en-IN')}` },
+        { h: 'Est. AI cost', r: 1, f: (u) => rs(u.ai_cost_paise) },
+        { h: 'Credits used', r: 1, f: (u) => u.credits_used }
+      ], use.rows, 'No shops yet.') +
+      `<div class="note">AI cost uses $${use.prices.usd_per_m_input} / $${use.prices.usd_per_m_output} per million tokens (input / output) at ₹${use.prices.inr_per_usd} per dollar. Replies inside the 24-hour chat window are free on WhatsApp; paid templates are counted separately.</div>` +
       `<h3>Failed jobs <small>· ${jobs.rows.length}</small></h3>` + table([
         { h: 'Job', f: (j) => `#${j.id} ${esc(j.queue)}` },
         { h: 'When', f: (j) => fdate(j.created_at, true) },
         { h: 'Error', f: (j) => esc(j.last_error || '') }
       ], jobs.rows, 'None.');
     loaded.add('admin');
+  }
+  async function showPeople(tenantId, name) {
+    const r = await json(`/admin/shops/${tenantId}/people`);
+    $('adminPeople').innerHTML = `<div class="card"><h2>People at ${esc(name)}</h2>` + table([
+      { h: 'Name', f: (p) => esc(p.name) || dash },
+      { h: 'Phone', f: (p) => `<a href="https://wa.me/${esc(p.phone)}" target="_blank" rel="noopener">+${esc(p.phone)}</a>` },
+      { h: 'Role', f: (p) => (p.role === 'owner' ? 'Owner' : p.status === 'invited' ? 'Staff (invited)' : 'Staff') },
+      { h: '', r: 1, f: (p) => (p.role === 'staff' ? `<button class="pdf" data-rmstaff="${esc(p.membership_id)}" data-name="${esc(p.name || p.phone)}" data-shop="${esc(tenantId)}" data-shopname="${esc(name)}">Remove</button>` : '') }
+    ], r.rows, 'Nobody active.') + '</div>';
+    $('adminPeople').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   // ── PDFs and CSV ─────────────────────────────────────────────────────────
@@ -401,10 +449,19 @@
     } catch (e) { if (w) w.close(); showError(e); }
     finally { btn.disabled = false; btn.textContent = 'PDF'; }
   }
+  async function openUrl(btn, path) {
+    const w = window.open('', '_blank');
+    const label = btn.textContent; btn.disabled = true; btn.textContent = 'Opening…';
+    try {
+      const url = URL.createObjectURL(await (await api(path)).blob());
+      if (w) w.location.href = url; else location.href = url;
+    } catch (e) { if (w) w.close(); showError(e); }
+    finally { btn.disabled = false; btn.textContent = label; }
+  }
   async function download(name, btn, path) {
     btn.disabled = true;
     try {
-      const res = await api(`/export/${path || name + '.csv'}?period=${PERIOD}`);
+      const res = await api(`/${path || 'export/' + name + '.csv'}?period=${PERIOD}`);
       const file = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || `${name}.csv`;
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await res.blob()), download: file });
       document.body.append(a); a.click(); a.remove();
@@ -449,8 +506,29 @@
     if (t.dataset.pdf) return openPdf(t);
     if (t.dataset.csv) return download(t.dataset.csv, t);
     if (t.dataset.pcsv) return download(t.dataset.pcsv, t);
-    if (t.dataset.export) return download(t.dataset.export, t, t.dataset.export);
+    if (t.dataset.export) return download(t.dataset.export, t, 'export/' + t.dataset.export);
     if (t.dataset.close) { await json(`/admin/support/${t.dataset.close}/close`, { method: 'POST', body: '{}' }).catch(showError); loaded.delete('admin'); return loadAdmin(); }
+    if (t.dataset.aexport) return download('admin', t, 'admin/export/' + t.dataset.aexport);
+    if (t.dataset.apdf) return openUrl(t, '/admin/pdf/recharge/' + t.dataset.apdf);
+    if (t.dataset.people) return showPeople(t.dataset.people, t.dataset.name).catch(showError);
+    if (t.dataset.status) {
+      const pausing = t.dataset.status === 'suspended';
+      const reason = prompt(pausing ? `Pause ${t.dataset.name}? They won't be able to bill or sign in until you reactivate. Reason (kept in the log):` : `Reactivate ${t.dataset.name}? Note (optional):`, '');
+      if (reason === null) return;
+      try { await json(`/admin/shops/${t.dataset.shop}/status`, { method: 'POST', body: JSON.stringify({ status: t.dataset.status, reason }) }); }
+      catch (err) { showError(err); }
+      return loadAdmin();
+    }
+    if (t.dataset.rmstaff) {
+      const reason = prompt(`Remove ${t.dataset.name} from ${t.dataset.shopname}? Reason (kept in the log):`, '');
+      if (reason === null) return;
+      try {
+        const r = await json(`/admin/staff/${t.dataset.rmstaff}/remove`, { method: 'POST', body: JSON.stringify({ reason }) });
+        if (r.refunded) alert(`Removed. The invite was not yet accepted, so ${r.refunded} credits went back to the shop.`);
+      } catch (err) { showError(err); }
+      await loadAdmin();
+      return showPeople(t.dataset.shop, t.dataset.shopname).catch(showError);
+    }
     if (t.dataset.grant) {
       const credits = Number(prompt(`Credits to give ${t.dataset.name} (1 to 10000):`, '50'));
       if (!Number.isInteger(credits) || credits < 1) return;

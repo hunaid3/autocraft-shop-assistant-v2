@@ -16,6 +16,7 @@ import { checkMeta, ensureSubscribed } from './whatsapp/metaCheck.js';
 import { SesEmailSender } from './notify/email.js';
 import { RazorpayClient } from './payments/razorpay.js';
 import { withoutTenant } from './db/tenantTx.js';
+import { aiUsageRecorder } from './engine/aiUsage.js';
 
 // In AWS only the database password is given; the rest comes from Supabase Vault.
 const db = await prepareRuntimeEnv(process.env, (m) => console.log(JSON.stringify({ level: 30, msg: m })));
@@ -23,10 +24,13 @@ const config = loadConfig();
 const reporter = initSentry({ dsn: config.SENTRY_DSN, environment: config.APP_ENV, release: config.RELEASE });
 const pool = new pg.Pool({ connectionString: config.DATABASE_URL, ssl: db.ssl, max: config.WORKER_CONCURRENCY + 10 });
 
+// AI token counts per shop, for the admin console (never blocks a reply)
+const recordUsage = aiUsageRecorder(pool, (e) => console.log(JSON.stringify({ level: 40, msg: 'ai usage not recorded', err: String(e) })));
+
 const parser = config.OPENAI_API_KEY
   ? new OpenAiParser({
       apiKey: config.OPENAI_API_KEY, model: config.OPENAI_MODEL,
-      onUsage: (u) => server.log.debug(u, 'openai usage')
+      onUsage: (u) => recordUsage(u)
     })
   : new SimpleParser();
 
@@ -50,7 +54,7 @@ const whatsapp = new CloudApiClient({ accessToken: config.META_ACCESS_TOKEN, pho
 // Bill photos/PDFs need the AI reader (OpenAI key) and somewhere to keep the original (storage key).
 // Without either, the owner is asked to type the purchase instead.
 const media = config.OPENAI_API_KEY && documents
-  ? { whatsapp, fileStore: documents.fileStore, billReader: new OpenAiBillReader({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_MODEL }) }
+  ? { whatsapp, fileStore: documents.fileStore, billReader: new OpenAiBillReader({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_MODEL, onUsage: (u) => recordUsage(u) }) }
   : undefined;
 server.log.info({ billReading: Boolean(media) }, 'bill photo reading');
 
