@@ -267,9 +267,9 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
         text(`🎉 *${a.name}* is ready! You are the owner, and ${credits}.\n\n` + refLine +
           (extra ? 'You are now working in this shop. Send *switch shop* to go back to your other shop.\n\n' : '') +
           'Try your first entry now:\n' +
-          '📥 *bought* 50 airdopes @ 850 from Sharma Traders (adds stock)\n' +
-          '🧾 *bill* Ravi 2 airdopes at 1250\n' +
-          '📝 *quote* Ravi 10 airdopes at 1200\n\n' +
+          '📥 *bought* 50 earbuds @ 850 from Sharma Traders (adds stock)\n' +
+          '🧾 *bill* Ravi 2 earbuds at 1250\n' +
+          '📝 *quote* Ravi 10 earbuds at 1200\n\n' +
           'You always see a summary first; nothing is saved until you tap ✅ Confirm.\n\n' +
           'Add more details any time: *update address …*, *update upi …*, send a photo with caption *logo*. Type *profile* to see your shop details, *help* for everything.')
       ];

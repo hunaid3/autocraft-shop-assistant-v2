@@ -171,7 +171,7 @@
         { h: 'Value', r: 1, f: (r) => rs(r.value_paise) },
         { h: 'Status', f: (r) => `<span class="tag ${r.status}">${STATUS[r.status]}</span>` },
         { h: 'Last movement', f: (r) => (r.last_movement ? fdate(r.last_movement) : dash) }
-      ], rows, all.length ? 'No items match.' : 'No items yet. They appear here as soon as you bill, buy or count them on WhatsApp, or send your item list as an Excel file.');
+      ], rows, all.length ? 'No items match.' : 'No items yet. They appear here as soon as you bill, buy or count them on WhatsApp, or send your item list as a spreadsheet file.');
     },
     invoices(r) {
       $('invLbl').textContent = range(r);
@@ -183,7 +183,7 @@
         { h: 'Total', r: 1, f: (x) => '<b>' + rs(x.total_paise) + '</b>' },
         { h: 'Status', f: (x) => `<span class="tag ${esc(x.status)}">${esc(x.status)}</span>` },
         { h: 'PDF', r: 1, f: (x) => pdfBtn('invoice', x) }
-      ], r.rows, 'No invoices ' + PERIOD_LABEL[PERIOD] + '. Send "bill Ravi 2 airdopes at 1250" on WhatsApp to make one.');
+      ], r.rows, 'No invoices ' + PERIOD_LABEL[PERIOD] + '. Send "bill Ravi 2 earbuds at 1250" on WhatsApp to make one.');
     },
     quotations(r) {
       $('quoLbl').textContent = range(r);
@@ -195,7 +195,7 @@
         { h: 'Total', r: 1, f: (x) => '<b>' + rs(x.total_paise) + '</b>' },
         { h: 'Status', f: (x) => `<span class="tag ${esc(x.status)}">${esc(String(x.status).replace(/_/g, ' '))}</span>` },
         { h: 'PDF', r: 1, f: (x) => pdfBtn('quotation', x) }
-      ], r.rows, 'No quotations ' + PERIOD_LABEL[PERIOD] + '. Send "quote Ravi 10 airdopes at 1200" on WhatsApp.');
+      ], r.rows, 'No quotations ' + PERIOD_LABEL[PERIOD] + '. Send "quote Ravi 10 earbuds at 1200" on WhatsApp.');
     },
     purchases(r) {
       $('purLbl').textContent = range(r);

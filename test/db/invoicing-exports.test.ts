@@ -172,7 +172,7 @@ describe('customers, suppliers and accounting exports', () => {
   });
 
   it('Tally XML: masters and balanced sales vouchers with GST ledgers', async () => {
-    const res = await get('/api/export/tally-sales.xml?period=month');
+    const res = await get('/api/export/sales-vouchers.xml?period=month');
     expect(res.headers['content-type']).toContain('application/xml');
     const xml = res.body;
     expect(xml).toContain('<LEDGER NAME="Ravi Electronics" ACTION="Create">');
@@ -198,13 +198,13 @@ describe('customers, suppliers and accounting exports', () => {
       payload: { tally_ledgers: { sales: 'Sales @ 18%', cgst: 'CGST Payable', sgst: 'SGST Payable', igst: 'IGST Payable', roundOff: 'Rounding', cashParty: 'Cash' } } });
     expect(put.statusCode).toBe(200);
     expect((await get('/api/settings')).json().tally_ledgers.sales).toBe('Sales @ 18%');
-    const xml = (await get('/api/export/tally-sales.xml?period=month')).body;
+    const xml = (await get('/api/export/sales-vouchers.xml?period=month')).body;
     expect(xml).toContain('<LEDGERNAME>Sales @ 18%</LEDGERNAME>');
     expect(xml).toContain('<LEDGERNAME>IGST Payable</LEDGERNAME>');
   });
 
   it('Zoho Books CSV and the GST sales register', async () => {
-    const zoho = (await get('/api/export/zoho-invoices.csv?period=month')).body;
+    const zoho = (await get('/api/export/invoices-import.csv?period=month')).body;
     expect(zoho.split('\r\n')[0]).toContain('Invoice Date,Invoice Number,Invoice Status,Customer Name,GST Treatment,GST Identification Number (GSTIN),Place of Supply');
     expect(zoho).toMatch(new RegExp(`Ravi Electronics,business_registered_regular,${RAVI_GSTIN},TS,INR,boAt Airdopes 141,.*GST18,18,Tax Group`));
     expect(zoho).toMatch(new RegExp(`Bengaluru Mobiles,business_registered_regular,${KA_GSTIN},KA,INR,.*IGST18,18,ItemAmount`));

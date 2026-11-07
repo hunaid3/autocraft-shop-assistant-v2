@@ -112,7 +112,7 @@ export async function inviteRoute(tx: Tx, phone: string, buttonId: string | unde
     if (!shop) return [text('That invite is no longer open.')];
     if (decline) return [text(`OK, you declined the invite from ${inv.tenant_name}. Send *Hi* any time to set up your own shop.`)];
     return [text(`🎉 You're now staff at *${inv.tenant_name}*.\n\n` +
-      'Try:\n🧾 *bill* Ravi 2 airdopes at 1250\n📝 *quote* Ravi 10 airdopes at 1200\n📥 *bought* 20 cables @ 90 from Sharma Traders (or a bill photo)\n📦 *stock of airdopes*\n\n' +
+      'Try:\n🧾 *bill* Ravi 2 earbuds at 1250\n📝 *quote* Ravi 10 earbuds at 1200\n📥 *bought* 20 cables @ 90 from Sharma Traders (or a bill photo)\n📦 *stock of earbuds*\n\n' +
       'You always see a summary first; nothing is saved until you tap ✅ Confirm. Type *help* for more.')];
   }
   return [{

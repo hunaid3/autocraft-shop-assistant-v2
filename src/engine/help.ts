@@ -14,11 +14,11 @@ const TOPICS: Record<HelpTopic, Topic> = {
   bills: {
     title: '🧾 Bills & quotes', description: 'GST bills, quotations, turning a quote into a bill',
     body: () => '🧾 *Bills & quotes*\n\n' +
-      '*Bill:* bill Ravi Electronics 10 airdopes at 1250, 5 cables at 199\n' +
-      '*With GSTIN:* bill Ravi gstin 36AABCU9603R1ZM 2 airdopes at 1250\n' +
+      '*Bill:* bill Ravi Electronics 10 earbuds at 1250, 5 cables at 199\n' +
+      '*With GSTIN:* bill Ravi gstin 36AABCU9603R1ZM 2 earbuds at 1250\n' +
       '*Hinglish:* Ravi ko 3 cable diye 200 ke\n' +
-      '*Quote:* quote Ravi 10 airdopes at 1200 (or *estimate …*, add *valid 30 days*)\n' +
-      '*Change a quote:* revise quote 1 10 airdopes at 1150\n' +
+      '*Quote:* quote Ravi 10 earbuds at 1200 (or *estimate …*, add *valid 30 days*)\n' +
+      '*Change a quote:* revise quote 1 10 earbuds at 1150\n' +
       '*Quote → bill:* convert quote 1\n\n' +
       'You see a summary first; tap ✅ Confirm to save. The PDF follows on WhatsApp.\n' +
       '💳 Bill 3 credits · quote 1 credit'
@@ -26,30 +26,30 @@ const TOPICS: Record<HelpTopic, Topic> = {
   purchases: {
     title: '📥 Purchases & stock in', description: 'Supplier bills, bill photos, adding stock',
     body: () => '📥 *Purchases & adding stock*\n\n' +
-      '*Purchase:* bought 50 airdopes @ 850 from Sharma Traders bill 4471\n' +
+      '*Purchase:* bought 50 earbuds @ 850 from Sharma Traders bill 4471\n' +
       '*Add stock:* add 50 cables @ 100 to stock, selling price 150 with 18% gst\n' +
       '*Hinglish:* Sharma se 20 charger liye 300 ke\n' +
       '*Bill photo:* just send a photo or PDF of the supplier bill; it comes back as a card to confirm\n' +
-      '*Whole item list:* send an Excel or CSV file (owner; *template* for a ready sheet)\n\n' +
+      '*Whole item list:* send a spreadsheet (.xlsx) or CSV file (owner; *template* for a ready sheet)\n\n' +
       'New items are created on Confirm; a selling price you give is saved on the item.\n' +
       '💳 Typed 1 credit · bill photo/PDF 3 credits · item list 10 (up to 10 items) or 25 (more than 10)'
   },
   stockout: {
     title: '📤 Stock out & returns', description: 'Samples, approval, damage, cash sale without bill',
     body: () => '📤 *Stock out without a bill*\n\n' +
-      '*Sample:* gave 2 airdopes sample to Ravi\n' +
-      '*On approval:* sent 5 airdopes on approval to Ravi\n' +
+      '*Sample:* gave 2 earbuds sample to Ravi\n' +
+      '*On approval:* sent 5 earbuds on approval to Ravi\n' +
       '*Damaged / lost:* 3 cables damaged\n' +
       '*Shop use:* took 1 cable for shop use\n' +
       '*Cash sale:* sold 1 cable without bill\n' +
-      '*Came back:* returned 2 airdopes from Ravi\n' +
+      '*Came back:* returned 2 earbuds from Ravi\n' +
       '*See what is out:* unbilled\n\n' +
       '💳 1 credit · returns free'
   },
   questions: {
     title: '📦 Stock & sales', description: 'Stock of an item, low stock, sales, open quotes',
     body: (owner) => '📦 *Ask anything*\n\n' +
-      '• stock of airdopes\n• stock (all items)\n• low stock\n• quotes (open quotations)\n• unbilled (goods out without a bill)\n' +
+      '• stock of earbuds\n• stock (all items)\n• low stock\n• quotes (open quotations)\n• unbilled (goods out without a bill)\n' +
       (owner ? '• sales today / this week / this month / last month\n• credits\n' : '') +
       '\nQuestions are free.'
   },
@@ -115,7 +115,7 @@ export function helpMenu(name: string | null, role: Role, opening?: string): Rep
     .map(([id, t]) => ({ id: 'HELP:' + id, title: t.title, description: t.description }));
   return [{
     kind: 'list',
-    text: opening ?? `👋 Hi${name ? ' ' + name : ''}! Type what you want to do, e.g. *bill Ravi 2 airdopes at 1250*, or tap *Menu* to see everything I can do.`,
+    text: opening ?? `👋 Hi${name ? ' ' + name : ''}! Type what you want to do, e.g. *bill Ravi 2 earbuds at 1250*, or tap *Menu* to see everything I can do.`,
     button: '📋 Menu', sectionTitle: 'What do you need?', rows
   }];
 }

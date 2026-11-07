@@ -39,7 +39,7 @@ import type { Intent, ParseContext, Parser } from './intents.js';
 // Staff may bill, quote, enter purchases (typed or photo), move stock and ask stock questions.
 const OWNER_ONLY = new Set<Intent['type']>(['expense', 'stock_count', 'profile_update', 'staff_add', 'staff_list', 'staff_remove', 'dashboard', 'recharge']);
 const OWNER_ONLY_TEXT = 'Only the owner can do that. You can make bills and check stock.';
-const BILL_EXAMPLE = '*bought 50 airdopes @ 850 from Sharma Traders bill 4471*';
+const BILL_EXAMPLE = '*bought 50 earbuds @ 850 from Sharma Traders bill 4471*';
 
 export interface MediaDeps {
   whatsapp: Pick<WhatsAppClient, 'downloadMedia'>;
@@ -94,7 +94,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
     if (!m.media?.id) return { reply: "I couldn't open that file. Please send it again." };
     const declared = m.media.mimeType ?? '';
     if (m.kind === 'document' && declared !== 'application/pdf') {
-      return { reply: 'I can read bills sent as a photo or a PDF, and item lists as Excel (.xlsx) or CSV. Send *template* for the item sheet.' };
+      return { reply: 'I can read bills sent as a photo or a PDF, and item lists as a spreadsheet (.xlsx) or CSV. Send *template* for the item sheet.' };
     }
     let file: { bytes: Buffer; mime: string };
     try {
@@ -294,7 +294,7 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       case 'refer':
         return referralReply(tx, shop.id, { botPhone, dashboardUrl: opts.dashboardUrl });
       case 'import_help':
-        return text('📦 Send your item list as an Excel (.xlsx) or CSV file here. Column titles in the first row: *Item name*, Unit, HSN, GST %, Buy price, Sell price, Stock qty.');
+        return text('📦 Send your item list as a spreadsheet (.xlsx) or CSV file here. Column titles in the first row: *Item name*, Unit, HSN, GST %, Buy price, Sell price, Stock qty.');
       case 'recharge':
         return packMenu(tx, sender.phone);
       case 'dashboard': {

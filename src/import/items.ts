@@ -244,7 +244,7 @@ export async function templateXlsx(): Promise<Buffer> {
   help.columns = [{ header: 'Column', key: 'c', width: 18 }, { header: 'What to put', key: 'w', width: 70 }, { header: 'Example', key: 'e', width: 24 }];
   help.getRow(1).font = { bold: true };
   help.addRows([
-    { c: 'Item name', w: 'Required. The name you use on bills.', e: 'Boat Airdopes 141' },
+    { c: 'Item name', w: 'Required. The name you use on bills.', e: 'Wireless Earbuds' },
     { c: 'SKU code', w: 'Optional. Your own code or barcode.', e: 'BT-AD141' },
     { c: 'Unit', w: 'Optional. pcs if empty.', e: 'pcs' },
     { c: 'HSN', w: 'Optional. 4 to 8 digits.', e: '85183000' },

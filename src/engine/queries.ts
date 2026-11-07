@@ -109,7 +109,7 @@ export async function runQuery(tx: Tx, q: Extract<Intent, { type: 'query' }>, ro
         `• ${r.name} × ${qtyText(r.qty)} · ${REASON_LABEL[r.reason as StockOutReason]}${r.party_name ? ' · ' + r.party_name : ''}` +
         ` · ${r.days === 0 ? 'today' : r.days + 'd ago'}${role === 'owner' && Number(r.est_value_paise) ? ` · ₹${formatInr(Number(r.est_value_paise))}` : ''}`).join('\n') +
         (role === 'owner' ? `\n\nValue out (at cost): ₹${formatInr(total)}` : '') +
-        '\n\nWhen goods come back: *returned 2 airdopes from Ravi*');
+        '\n\nWhen goods come back: *returned 2 earbuds from Ravi*');
     }
 
     case 'open_quotes': {
@@ -117,11 +117,11 @@ export async function runQuery(tx: Tx, q: Extract<Intent, { type: 'query' }>, ro
         `select number, doc_title, bill_to->>'name' as party, total_paise, to_char(valid_until, 'YYYY-MM-DD') as valid_until,
                 valid_until < app.today_ist() as expired, status
            from quotations where status in ('open', 'accepted', 'partly_converted') order by quote_date desc, number desc limit 30`);
-      if (!rows.length) return '📝 No open quotations. To make one: *quote Ravi 10 airdopes at 1250*';
+      if (!rows.length) return '📝 No open quotations. To make one: *quote Ravi 10 earbuds at 1250*';
       return trunc('📝 *Open quotations*\n' + rows.map((r) =>
         `• ${r.number}${r.party ? ' · ' + r.party : ''} · ₹${formatInr(Number(r.total_paise))} · ${r.expired ? '⌛ expired ' : 'valid till '}${r.valid_until.split('-').reverse().join('-')}` +
         (r.status === 'partly_converted' ? ' · part billed' : '')).join('\n') +
-        '\n\nTo bill one: *convert quote 12* · to change one: *revise quote 12 10 airdopes at 1200*');
+        '\n\nTo bill one: *convert quote 12* · to change one: *revise quote 12 10 earbuds at 1200*');
     }
 
     case 'sales_period': {
@@ -140,23 +140,23 @@ export async function runQuery(tx: Tx, q: Extract<Intent, { type: 'query' }>, ro
 export function helpText(name: string | null, role: Role): string {
   const owner = role === 'owner';
   return `👋 Hi${name ? ' ' + name : ''}! Send messages like:\n\n` +
-    '🧾 *bill* Ravi Electronics 10 airdopes at 1250, 5 cables at 199\n' +
-    '📥 *bought* 50 airdopes @ 850 from Sharma Traders bill 4471 (or send a photo of the bill)\n' +
-    (owner ? '💸 *paid* 3500 shop rent cash\n🔢 *stock count* airdopes 141 40, cable 25\n' : '') +
-    '📝 *quote* Ravi 10 airdopes at 1250 (then *convert quote 1* to bill it)\n' +
-    '📤 *gave* 2 airdopes sample to Ravi · *3 cables damaged* · *returned* 2 airdopes from Ravi\n' +
-    '\nAsk:\n• stock of airdopes\n• stock / low stock\n• quotes (open quotations)\n• unbilled (goods out without a bill)' +
+    '🧾 *bill* Ravi Electronics 10 earbuds at 1250, 5 cables at 199\n' +
+    '📥 *bought* 50 earbuds @ 850 from Sharma Traders bill 4471 (or send a photo of the bill)\n' +
+    (owner ? '💸 *paid* 3500 shop rent cash\n🔢 *stock count* earbuds 40, cable 25\n' : '') +
+    '📝 *quote* Ravi 10 earbuds at 1250 (then *convert quote 1* to bill it)\n' +
+    '📤 *gave* 2 earbuds sample to Ravi · *3 cables damaged* · *returned* 2 earbuds from Ravi\n' +
+    '\nAsk:\n• stock of earbuds\n• stock / low stock\n• quotes (open quotations)\n• unbilled (goods out without a bill)' +
     (owner ? '\n• sales today / this month\n• credits\n\nShop: *profile* · *staff* · *add staff 9876543210 Ravi*' : '') +
     '\n\nI always show a summary first. Nothing is saved until you tap ✅ Confirm.';
 }
 
 export const HOW_TO: Record<HowToTopic, string> = {
-  invoice: '🧾 To make a bill, send the customer, items, quantity and rate, e.g.\n*bill Ravi Electronics 10 airdopes at 1250, 5 cables at 199*',
-  purchase: '📥 To record a purchase, send the items, quantity, rate and supplier, e.g.\n*bought 50 airdopes @ 850 from Sharma Traders bill 4471*',
+  invoice: '🧾 To make a bill, send the customer, items, quantity and rate, e.g.\n*bill Ravi Electronics 10 earbuds at 1250, 5 cables at 199*',
+  purchase: '📥 To record a purchase, send the items, quantity, rate and supplier, e.g.\n*bought 50 earbuds @ 850 from Sharma Traders bill 4471*',
   expense: '💸 To record an expense, send the amount, what it was for and how you paid, e.g.\n*paid 3500 shop rent cash*',
-  stock_count: '🔢 To set how many you have in hand, e.g.\n*stock count airdopes 141 40, cable 25*',
-  quotation: '📝 To send a quotation, send the customer, items, quantity and rate, e.g.\n*quote Ravi Electronics 10 airdopes at 1250, 5 cables at 199*\n(*estimate …* for an estimate; add *valid 30 days* to change how long it holds)\n\nTo change it: *revise quote 12 10 airdopes at 1200*\nWhen the customer agrees: *convert quote 12*\nTo see open ones: *quotes*',
+  stock_count: '🔢 To set how many you have in hand, e.g.\n*stock count earbuds 40, cable 25*',
+  quotation: '📝 To send a quotation, send the customer, items, quantity and rate, e.g.\n*quote Ravi Electronics 10 earbuds at 1250, 5 cables at 199*\n(*estimate …* for an estimate; add *valid 30 days* to change how long it holds)\n\nTo change it: *revise quote 12 10 earbuds at 1200*\nWhen the customer agrees: *convert quote 12*\nTo see open ones: *quotes*',
   profile: '🏪 To change your shop details, send for example:\n*update gstin 36AABCU9603R1ZX*\n*update address 12-3, Abids Road, Hyderabad 500001*\n*update upi myshop@okhdfcbank*\n*update phone 9876543210*\n*update shop name Ravi Mobiles*\n\nSend a photo with the caption *logo* to put your logo on bills. Type *profile* to see what is saved now.',
   staff: '👥 To let someone else bill from their own phone:\n*add staff 9876543210 Ravi*\nThey send *Hi* to this number and tap *Accept*.\n\nStaff can make bills and quotes, enter purchases and check stock. Sales reports, expenses, stock counts and shop settings stay with you.\n\n*staff* shows everyone · *remove staff Ravi* takes access away at once.',
-  stock_out: '📤 When stock leaves without a bill, say what, how many and why, e.g.\n*gave 2 airdopes sample to Ravi*\n*3 cables damaged*\n*sent 5 airdopes on approval to Ravi*\n*sold 1 cable without bill*\n\nWhen it comes back: *returned 2 airdopes from Ravi*. To see what is out: *unbilled*'
+  stock_out: '📤 When stock leaves without a bill, say what, how many and why, e.g.\n*gave 2 earbuds sample to Ravi*\n*3 cables damaged*\n*sent 5 earbuds on approval to Ravi*\n*sold 1 cable without bill*\n\nWhen it comes back: *returned 2 earbuds from Ravi*. To see what is out: *unbilled*'
 };

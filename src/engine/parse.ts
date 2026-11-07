@@ -2,7 +2,7 @@
  * Understanding a message, in two layers:
  *   1. fixedRules — exact commands (yes, no, help, stock, sales today…). Free, instant, no AI.
  *   2. a Parser for everything else. SimpleParser reads the example formats from the help text
- *      ("bill Ravi 10 airdopes at 1250, 5 cables at 199"); the AI parser replaces it once the
+ *      ("bill Ravi 10 earbuds at 1250, 5 cables at 199"); the AI parser replaces it once the
  *      OpenAI key is set, returning the same Intent shapes.
  */
 import { toPaise } from '../domain/money.js';
@@ -146,7 +146,7 @@ export function splitLines(s: string): string[] {
   return s.split(/[;\n]+|,(?!\d)/).map(clean).filter(Boolean);
 }
 
-/** "Ravi Electronics gstin 36AAB… 10 airdopes at 1250, 5 cables at 199" → party + lines */
+/** "Ravi Electronics gstin 36AAB… 10 earbuds at 1250, 5 cables at 199" → party + lines */
 function partyAndLines(rest: string): { party: PartyIntent; lines: LineIntent[] } | null {
   let party: PartyIntent = {};
   // GSTIN first: its leading digits would otherwise read as a quantity
@@ -180,7 +180,7 @@ const REASONS: Array<[RegExp, StockOutReason]> = [
   [/\b(?:branch\s+transfer|transfer(?:red)?|moved|to\s+(?:the\s+)?(?:other\s+)?(?:branch|godown|warehouse))\b/i, 'branch_transfer']
 ];
 
-export const REASON_HINT = 'Why did it go out? Add one of: *sample*, *on approval*, *damaged*, *shop use*, *branch transfer* or *without bill*, e.g.\n*gave 2 airdopes sample to Ravi*';
+export const REASON_HINT = 'Why did it go out? Add one of: *sample*, *on approval*, *damaged*, *shop use*, *branch transfer* or *without bill*, e.g.\n*gave 2 earbuds sample to Ravi*';
 
 const QTY_LINE = new RegExp(String.raw`^(${NUM})\s*(?:(${UNITS})\b\.?\s*)?(?:x\s+)?(?:of\s+)?(.+)$`, 'i');
 function qtyLines(s: string): QtyLine[] | null {
@@ -193,7 +193,7 @@ function qtyLines(s: string): QtyLine[] | null {
   return out.length && out.every(Boolean) ? (out as QtyLine[]) : null;
 }
 
-/** "gave 2 airdopes, 1 cable sample to Ravi" / "3 cables damaged" / "stock out 5 cable branch transfer" */
+/** "gave 2 earbuds, 1 cable sample to Ravi" / "3 cables damaged" / "stock out 5 cable branch transfer" */
 function stockOut(rest: string, verbReason?: StockOutReason): Intent {
   let reason: StockOutReason | undefined = verbReason;
   for (const [re, r] of REASONS) {
@@ -245,7 +245,7 @@ export class SimpleParser implements Parser {
     if (out) return stockOut(out[1]!);
     const xfer = /^(?:transfer(?:red)?|moved)\b[:\s]*(.*)$/is.exec(t);
     if (xfer) return stockOut(xfer[1]!, 'branch_transfer');
-    // "3 cables damaged", "2 airdopes lost"
+    // "3 cables damaged", "2 earbuds lost"
     if (/^\d/.test(t) && REASONS.some(([re, r]) => r !== 'branch_transfer' && re.test(t)) && !/\b(?:at|@|rs\.?|₹)\s*\d/i.test(t)) return stockOut(t);
 
     const bill = /^(?:bill|invoice|sale|sold|sell)\b[:\s]*(.*)$/is.exec(t);

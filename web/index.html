@@ -87,11 +87,11 @@
   <section class="panel" id="p-invoices">
     <div class="tools"><span class="muted small" id="invLbl"></span><button class="csv" data-csv="invoices">Download CSV</button></div>
     <div class="exports"><span class="muted small">For your accountant, this period's bills:</span>
-      <button class="csv" data-export="tally-sales.xml">Tally (XML)</button>
-      <button class="csv" data-export="zoho-invoices.csv">Zoho Books (CSV)</button>
+      <button class="csv" data-export="sales-vouchers.xml">Accounting import (XML)</button>
+      <button class="csv" data-export="invoices-import.csv">Accounting import (CSV)</button>
       <button class="csv" data-export="sales-register.csv">GST sales register (CSV)</button></div>
     <div id="invTbl"></div>
-    <div class="note">Tally: Gateway of Tally → Import → Transactions, choose the XML. Customers, items, units and the sales and GST ledgers are created if missing (ledger names are in Settings). Zoho Books: Sales → Invoices → Import. Try the first import in a test company.</div>
+    <div class="note">Accounting import (XML): sales vouchers in the XML format most desktop accounting software in India imports; use your software's import of transactions and choose the file. Customers, items, units and the sales and GST ledgers are created if missing (ledger names are in Settings). Accounting import (CSV): one row per invoice line, for online accounting software that imports invoices from a spreadsheet. Try the first import in a test company.</div>
   </section>
   <section class="panel" id="p-quotations"><div class="tools"><span class="muted small" id="quoLbl"></span><button class="csv" data-csv="quotations">Download CSV</button></div><div id="quoTbl"></div></section>
   <section class="panel" id="p-purchases"><div class="tools"><span class="muted small" id="purLbl"></span><button class="csv" data-csv="purchases">Download CSV</button></div><div id="purTbl"></div></section>
@@ -165,7 +165,7 @@
         </div>
       </div>
       <div class="card">
-        <h2>Tally ledger names <small>· used in the Tally export; match them to your Tally company</small></h2>
+        <h2>Ledger names <small>· used in the accounting import (XML); match them to the ledgers in your accounting software</small></h2>
         <div class="grid">
           <label>Sales ledger<input name="t_sales" maxlength="60"></label>
           <label>CGST ledger<input name="t_cgst" maxlength="60"></label>

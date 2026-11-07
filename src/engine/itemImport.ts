@@ -40,8 +40,8 @@ export async function prepareImport(
   msg: { waMessageId: string; mediaId: string; mime?: string; filename?: string }
 ): Promise<{ import: PreparedImport } | { reply: string }> {
   const type = isSpreadsheet(msg.mime, msg.filename);
-  if (type === 'xls') return { reply: 'That is an old Excel file (.xls). In Excel choose *File → Save As → Excel Workbook (.xlsx)* or *CSV*, then send it again.' };
-  if (!type) return { reply: 'Please send the item list as an Excel (.xlsx) or CSV file. Send *template* for a ready sheet.' };
+  if (type === 'xls') return { reply: 'That is an older spreadsheet format (.xls). Open it in your spreadsheet app, save it as *.xlsx* or *CSV*, then send it again.' };
+  if (!type) return { reply: 'Please send the item list as a spreadsheet (.xlsx) or CSV file. Send *template* for a ready sheet.' };
   let file: { bytes: Buffer; mime: string };
   try {
     file = await deps.whatsapp.downloadMedia(msg.mediaId, IMPORT_MAX_BYTES);
@@ -207,7 +207,7 @@ export async function templateReplies(tx: Tx, tenantId: string, userId: string, 
   const small = await creditCost(tx, 'bulk_import_small');
   const big = await creditCost(tx, 'bulk_import');
   return [
-    { kind: 'text', text: '📦 *Upload your item list*\n\nSend an Excel (.xlsx) or CSV file with one item per row. Column titles in the first row: *Item name* (needed), Unit, HSN, GST %, Buy price, Sell price, Stock qty, Low stock alert. Other spellings like *MRP* or *Opening stock* work too.\n\n' +
+    { kind: 'text', text: '📦 *Upload your item list*\n\nSend a spreadsheet (.xlsx) or CSV file with one item per row. Column titles in the first row: *Item name* (needed), Unit, HSN, GST %, Buy price, Sell price, Stock qty, Low stock alert. Other spellings like *MRP* or *Opening stock* work too.\n\n' +
       `You see a summary first. 💳 ${small} credits for up to ${SMALL_IMPORT_MAX} items, ${big} credits for more than ${SMALL_IMPORT_MAX} (up to 2000 per file).` },
     { kind: 'document', fileId, filename: 'AutoCraft-item-template.xlsx', caption: 'Fill the Items sheet and send it back here.' }
   ];

@@ -35,7 +35,7 @@ export function rechargeInvoiceDoc(r: Record<string, any>): InvoiceDoc { // esli
     }],
     totals: { taxablePaise: n(r.taxable_paise), cgstPaise: n(r.cgst_paise), sgstPaise: n(r.sgst_paise), igstPaise: n(r.igst_paise), roundOffPaise: 0, totalPaise: n(r.total_paise) },
     terms: [
-      `Paid in full online${r.provider_payment_id ? ` (Razorpay payment ${r.provider_payment_id})` : ''}. Reverse charge: No.`,
+      `Paid in full online${r.provider_payment_id ? ` (payment ID ${r.provider_payment_id})` : ''}. Reverse charge: No.`,
       `${r.credits} credits added to ${buy.trade_name ?? buy.name}; credits are valid for 24 months and are not refundable or transferable.`,
       'Service: AutoCraft Shop Assistant (WhatsApp billing and stock software).'
     ]

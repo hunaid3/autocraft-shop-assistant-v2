@@ -110,7 +110,7 @@ export async function handleRazorpayEvent(pool: pg.Pool, event: { event?: string
       const receipt = `✅ *Payment received*: ₹${formatInr(Number(p.amount_paise))}\n` +
         `${c} credits added (${p.pack_code} pack), valid till ${date(w.expires_at)}.\n` +
         (rel.n ? `🎁 Plus *${rel.n} referral credits* that were waiting for your first recharge.\n` : '') +
-        `Balance: *${w.balance} credits*\n\nRazorpay payment ID: ${paymentId}\n` +
+        `Balance: *${w.balance} credits*\n\nPayment ID: ${paymentId}\n` +
         (inv.id ? 'Your GST tax invoice (PDF) follows. You can also download it from the dashboard. Thank you!' : 'Keep this message as your receipt. Thank you!');
       const { rows: [m] } = await tx.query(
         `insert into messages (wa_message_id, tenant_id, direction, phone, msg_type, payload, status) values ($1, $2, 'out', $3, 'text', $4, 'pending') returning id`,

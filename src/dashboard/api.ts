@@ -239,8 +239,8 @@ export function registerDashboard(app: FastifyInstance, deps: { pool: pg.Pool; f
   }
   const ACCOUNTING: Record<string, { type: string; ext: string; make: (invs: ExportInvoice[], tx: Tx) => Promise<string> }> = {
     'sales-register': { type: 'text/csv; charset=utf-8', ext: 'csv', make: async (i) => gstSalesRegister(i) },
-    'zoho-invoices': { type: 'text/csv; charset=utf-8', ext: 'csv', make: async (i) => zohoInvoicesCsv(i) },
-    'tally-sales': {
+    'invoices-import': { type: 'text/csv; charset=utf-8', ext: 'csv', make: async (i) => zohoInvoicesCsv(i) },
+    'sales-vouchers': {
       type: 'application/xml; charset=utf-8', ext: 'xml',
       make: async (i, tx) => {
         const { rows: [f] } = await tx.query("select features->'tally' as t from tenant_settings");
