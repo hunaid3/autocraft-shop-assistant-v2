@@ -84,6 +84,7 @@ export function fixedRules(text: string): Intent | null {
   if (YES.test(t)) return { type: 'confirm' };
   if (NO.test(t)) return { type: 'cancel' };
   if (/^(help|menu|\?|commands|how|options)$/.test(t)) return { type: 'help' };
+  if (/^(videos?|how ?to videos?|tutorials?|video help|help videos?|demo videos?)$/.test(t)) return { type: 'how_to_video' };
   if (/^(recharge|top ?up|buy credits|add credits|credits? (?:khatam|over|finished)|recharge credits|pay|payment)$/.test(t)) return { type: 'recharge' };
   if (/^(dashboard|my dashboard|dashboard link|reports? link|web login|login|open dashboard)$/.test(t)) return { type: 'dashboard' };
   if (/^(refer|referral|referrals|my code|my referral code|referral code|refer a shop|refer shop|invite a shop|refer and earn)$/.test(t)) return { type: 'refer' };

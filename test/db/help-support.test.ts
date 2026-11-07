@@ -49,12 +49,12 @@ const words = (r: OutboundMessage[]) => r.map((x) => ('text' in x ? x.text : '')
 const tap = (id: string, from: string) => send({ from, id: 'wamid.' + Math.random(), timestamp: '1', type: 'interactive', interactive: { type: 'list_reply', list_reply: { id, title: id } } }, from);
 
 describe('help menu', () => {
-  it('help gives a short message with a Menu list of topics (owner sees all 8)', async () => {
+  it('help gives a short message with a Menu list of topics (owner sees all 9)', async () => {
     const [m] = to(await send(text(S.ownerPhone, 'help'), S.ownerPhone), S.ownerPhone);
     expect(m!.kind).toBe('list');
     const l = m as Extract<OutboundMessage, { kind: 'list' }>;
     expect(l.button).toBe('📋 Menu');
-    expect(l.rows.map((r) => r.id)).toEqual(['HELP:bills', 'HELP:purchases', 'HELP:stockout', 'HELP:questions', 'HELP:shop', 'HELP:staff', 'HELP:credits', 'HELP:support']);
+    expect(l.rows.map((r) => r.id)).toEqual(['HELP:bills', 'HELP:purchases', 'HELP:stockout', 'HELP:questions', 'HELP:shop', 'HELP:staff', 'HELP:credits', 'HELP:videos', 'HELP:support']);
     for (const r of l.rows) { expect(r.title.length).toBeLessThanOrEqual(24); expect((r.description ?? '').length).toBeLessThanOrEqual(72); }
   });
   it('tapping a topic sends its examples and prices, with a Back to menu button', async () => {

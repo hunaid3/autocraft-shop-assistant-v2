@@ -4,7 +4,9 @@
  */
 
 export type OutboundMessage =
-  | { kind: 'buttons'; to: string; text: string; buttons: Array<{ id: string; title: string }> }
+  | { kind: 'buttons'; to: string; text: string; buttons: Array<{ id: string; title: string }>; header?: { video?: string; image?: string } }
+  // One tap opens a web address (WhatsApp call-to-action URL button)
+  | { kind: 'link'; to: string; text: string; button: string; url: string }
   // A menu: one button opens a list of up to 10 rows; tapping a row comes back like a button tap.
   | { kind: 'list'; to: string; text: string; button: string; rows: Array<{ id: string; title: string; description?: string }>; sectionTitle?: string }
   // Free text to someone outside the 24-hour window is refused by Meta (#131047); then the approved
@@ -45,6 +47,7 @@ export function toCloudApiBody(msg: OutboundMessage): Record<string, unknown> {
         ...base, type: 'interactive',
         interactive: {
           type: 'button',
+          ...(msg.header?.video ? { header: { type: 'video', video: { link: msg.header.video } } } : msg.header?.image ? { header: { type: 'image', image: { link: msg.header.image } } } : {}),
           body: { text: msg.text.slice(0, 1024) },
           action: { buttons: msg.buttons.slice(0, 3).map((b) => ({ type: 'reply', reply: { id: b.id.slice(0, 256), title: b.title.slice(0, 20) } })) }
         }
@@ -74,6 +77,11 @@ export function toCloudApiBody(msg: OutboundMessage): Record<string, unknown> {
     case 'document':
       if (!msg.mediaId) throw new Error('document has no mediaId: upload it first');
       return { ...base, type: 'document', document: { id: msg.mediaId, filename: msg.filename, caption: msg.caption?.slice(0, 1024) } };
+    case 'link':
+      return {
+        ...base, type: 'interactive',
+        interactive: { type: 'cta_url', body: { text: msg.text.slice(0, 1024) }, action: { name: 'cta_url', parameters: { display_text: msg.button.slice(0, 20), url: msg.url } } }
+      };
     case 'image':
       return { ...base, type: 'image', image: { link: msg.link, ...(msg.caption ? { caption: msg.caption.slice(0, 1024) } : {}) } };
   }

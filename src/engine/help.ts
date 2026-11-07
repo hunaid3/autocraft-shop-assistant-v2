@@ -6,7 +6,7 @@
 import type { Role } from './senders.js';
 import type { Reply } from './router.js';
 
-export type HelpTopic = 'bills' | 'purchases' | 'stockout' | 'questions' | 'shop' | 'staff' | 'credits' | 'support';
+export type HelpTopic = 'bills' | 'purchases' | 'stockout' | 'questions' | 'shop' | 'staff' | 'credits' | 'support' | 'videos';
 
 interface Topic { title: string; description: string; ownerOnly?: boolean; body: (owner: boolean) => string; buttons?: Array<[string, string]> }
 
@@ -84,6 +84,10 @@ const TOPICS: Record<HelpTopic, Topic> = {
       '🎁 *refer*: your referral code. A new shop that joins with it gets 15 extra credits, and so do you.',
     buttons: [['RECHARGE', '💳 Recharge']]
   },
+  videos: {
+    title: '🎬 How-to videos', description: 'Short videos for each thing you can do',
+    body: () => '🎬 Send *videos* for the list of how-to videos.'
+  },
   support: {
     title: '💬 Talk to AutoCraft', description: 'Report a problem or ask us anything',
     body: () => '💬 *Talk to AutoCraft*\n\nSend *support* followed by your problem in one message, e.g.\n' +
@@ -100,7 +104,8 @@ const ALIASES: Array<[RegExp, HelpTopic]> = [
   [/^(shop|profile|gst|gstin|address|upi|logo|settings?)$/, 'shop'],
   [/^(staff|team|employees?)$/, 'staff'],
   [/^(credits?|prices?|pricing|cost|charges?)$/, 'credits'],
-  [/^(support|contact|complaint|problem)$/, 'support']
+  [/^(support|contact|complaint|problem)$/, 'support'],
+  [/^(videos?|tutorials?)$/, 'videos']
 ];
 
 export function topicFromText(word: string): HelpTopic | null {

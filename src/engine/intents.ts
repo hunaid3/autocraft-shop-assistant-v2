@@ -37,6 +37,7 @@ export type PeriodName = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'l
 
 export type Intent =
   | { type: 'help' }
+  | { type: 'how_to_video'; chapter?: number }
   | { type: 'greeting' }
   | { type: 'confirm' }
   | { type: 'cancel' }

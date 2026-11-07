@@ -11,6 +11,7 @@ import { checkGstin } from '../domain/gstin.js';
 import { normKey } from '../domain/itemMatch.js';
 import type { InboundMessage } from '../webhook/parse.js';
 import type { Reply } from './router.js';
+import { chapterCard, onboardingVideo } from './videos.js';
 
 type Step = 'intro' | 'name' | 'gstin' | 'state' | 'upi' | 'confirm';
 interface Answers { name?: string; gstin?: string; stateCode?: string; stateName?: string; upi?: string; extra?: boolean; ref?: string; refShop?: string }
@@ -120,7 +121,12 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
   }
 
   const wantsStart = id(m) === 'START' || said(m, /^(start|start free|register|sign ?up|join|yes|create shop)$/);
-  const introCard = async () => buttons(intro(await bonusFor(tx, phone)), [['START', '🚀 Start'], ['NOTNOW', 'Not now']]) as Extract<Reply, { kind: 'buttons' }>;
+  const introCard = async () => {
+    const card = buttons(intro(await bonusFor(tx, phone)), [['START', '🚀 Start'], ['NOTNOW', 'Not now']]) as Extract<Reply, { kind: 'buttons' }>;
+    // the intro + sign-up video plays right on the welcome card (only for a first shop, not "add shop")
+    const video = (s?.answers as Answers | undefined)?.extra ? null : await onboardingVideo(tx);
+    return video ? { ...card, header: { video } } : card;
+  };
   // A referral code can come with the first "Hi" (from a shared link) or at any point before the shop is created
   const refCode = m.kind === 'text' ? referralCodeIn(m.text) : null;
   let refNote = '';
@@ -271,7 +277,8 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
           '🧾 *bill* Ravi 2 earbuds at 1250\n' +
           '📝 *quote* Ravi 10 earbuds at 1200\n\n' +
           'You always see a summary first; nothing is saved until you tap ✅ Confirm.\n\n' +
-          'Add more details any time: *update address …*, *update upi …*, send a photo with caption *logo*. Type *profile* to see your shop details, *help* for everything.')
+          'Add more details any time: *update address …*, *update upi …*, send a photo with caption *logo*. Type *profile* to see your shop details, *help* for everything.'),
+        ...(extra ? [] : await chapterCard(tx, 2, '🎬 New here? Watch how to make your first bill: a 40-second video. Send *videos* any time for the others.'))
       ];
     }
   }

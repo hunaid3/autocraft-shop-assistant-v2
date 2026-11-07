@@ -26,6 +26,7 @@ import { importCard, prepareImport, prepareTemplate, templateReplies, type Prepa
 import { isSpreadsheet } from '../import/items.js';
 import { checkStaffAdd, inviteRoute, listStaff, removeStaff, staffCard } from './staff.js';
 import { helpMenu, helpTopic, type HelpTopic } from './help.js';
+import { chapterCard, TOPIC_CHAPTER, videosMenu } from './videos.js';
 import { ASK_PROBLEM, captureSupport } from './support.js';
 import { createLoginLink, LINK_MINUTES } from '../dashboard/api.js';
 import { expiryNudge, packMenu, prepareLink, saveLink, type PreparedLink } from '../payments/recharge.js';
@@ -70,6 +71,8 @@ function buttonIntent(id: string | undefined): Intent {
     case 'SUPPORT': return { type: 'support' };
     case 'RECHARGE': return { type: 'recharge' };
     default: {
+      const v = /^VIDEO:(\d{1,2})$/.exec((id ?? '').toUpperCase());
+      if (v) return { type: 'how_to_video', chapter: Number(v[1]) };
       const t = /^HELP:([A-Z]+)$/.exec((id ?? '').toUpperCase());
       return t ? { type: 'help_topic', topic: t[1]!.toLowerCase() as HelpTopic } : { type: 'unknown' };
     }
@@ -261,8 +264,17 @@ export function shopRouter(parser: Parser, opts: { lowBalance?: number; media?: 
       case 'help':
       case 'greeting':
         return helpMenu(sender.userName, sender.role);
-      case 'help_topic':
-        return helpTopic(intent.topic, sender.role);
+      case 'help_topic': {
+        if (intent.topic === 'videos') return videosMenu(tx);
+        const out = helpTopic(intent.topic, sender.role);
+        const ch = TOPIC_CHAPTER[intent.topic];
+        return ch !== undefined && !(out.length === 1 && out[0]!.kind === 'text') ? [...out, ...await chapterCard(tx, ch)] : out;
+      }
+      case 'how_to_video': {
+        if (intent.chapter === undefined) return videosMenu(tx);
+        const card = await chapterCard(tx, intent.chapter);
+        return card.length ? card : videosMenu(tx);
+      }
       case 'support': {
         if (intent.problem) return captureSupport(tx, sender, shop.id, intent.problem, null);
         await saveDraft(tx, shop.id, sender.userId, { ok: true, cost: 0, balance: 0, summary: 'Waiting for the problem message', payload: { kind: 'support_request' } }, ctx.messageId ?? null);
