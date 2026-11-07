@@ -82,7 +82,7 @@
       <button class="csv" data-csv="stock">Download CSV</button>
     </div>
     <div id="stockTbl"></div>
-    <div class="note">Value is at purchase cost (selling price where no cost is known). “Not recorded” means the item was sold before its stock was entered: send <b>stock count</b> on WhatsApp to fix it. To add many items at once, send an Excel or CSV file on WhatsApp (<b>template</b> for a ready sheet).</div>
+    <div class="note">Value is at purchase cost (selling price where no cost is known). “Not recorded” means the item was sold before its stock was entered: send <b>stock count</b> on WhatsApp to fix it. To add many items at once, send a spreadsheet (.xlsx) or CSV file on WhatsApp (<b>template</b> for a ready sheet).</div>
   </section>
   <section class="panel" id="p-invoices">
     <div class="tools"><span class="muted small" id="invLbl"></span><button class="csv" data-csv="invoices">Download CSV</button></div>
@@ -120,7 +120,7 @@
           <label class="wide">Address<textarea name="address" rows="2" maxlength="300"></textarea></label>
           <label>Phone on bill<input name="phone" inputmode="tel" placeholder="98765 43210"></label>
           <label>Email<input name="email" type="email" maxlength="120"></label>
-          <label>UPI ID <small>(adds a pay QR)</small><input name="upi_id" placeholder="shopname@okhdfcbank"></label>
+          <label>UPI ID <small>(adds a pay QR)</small><input name="upi_id" placeholder="shopname@upi"></label>
           <div class="locked"><span class="lbl">GSTIN</span><b id="gstinRO"></b><small>Confirmed at sign-up. To change it, send <b>support</b> on WhatsApp.</small></div>
         </div>
       </div>
@@ -142,7 +142,7 @@
           <label>Account name<input name="bank_account_name" maxlength="80"></label>
           <label>Bank<input name="bank_name" maxlength="80"></label>
           <label>Account number<input name="bank_account_no" inputmode="numeric"></label>
-          <label>IFSC<input name="bank_ifsc" placeholder="HDFC0001234"></label>
+          <label>IFSC<input name="bank_ifsc" placeholder="ABCD0001234"></label>
         </div>
       </div>
       <div class="card">

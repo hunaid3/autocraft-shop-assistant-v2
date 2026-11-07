@@ -26,7 +26,7 @@ const ASK_GSTIN_EXTRA = "What is the new shop's GSTIN?\n\nA second shop on the s
 const ASK_NAME = "What is your shop's name? (as it should appear on your bills)";
 const ASK_GSTIN = 'Do you have a GSTIN? Send it here, or tap *No GSTIN* if your shop is not registered for GST.\n\n_You can add it later too._';
 const ASK_STATE = 'Which state is your shop in? (e.g. *Telangana*)';
-const ASK_UPI = 'Your UPI ID for payments? It adds a scan-to-pay QR on every bill (e.g. *shopname@okhdfcbank*). Or tap *Skip*.';
+const ASK_UPI = 'Your UPI ID for payments? It adds a scan-to-pay QR on every bill (e.g. *shopname@upi*). Or tap *Skip*.';
 
 // Short forms people type for states (GST state codes)
 const STATE_ALIASES: Record<string, string> = {
@@ -218,7 +218,7 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
     case 'upi': {
       let upi: string | undefined;
       if (!skip) {
-        if (!/^[a-z0-9._-]{2,256}@[a-z]{2,64}$/i.test(value)) return [buttons("That doesn't look like a UPI ID (it has an @, like *name@okaxis*). Send it again, or tap *Skip*.", [['SKIP', 'Skip']])];
+        if (!/^[a-z0-9._-]{2,256}@[a-z]{2,64}$/i.test(value)) return [buttons("That doesn't look like a UPI ID (it has an @, like *name@upi*). Send it again, or tap *Skip*.", [['SKIP', 'Skip']])];
         upi = value.toLowerCase();
       }
       const next = { ...a, upi };

@@ -59,7 +59,7 @@ const TOPICS: Record<HelpTopic, Topic> = {
       '*See them:* profile\n' +
       '*GSTIN:* set once at sign-up; to change it, send *support*\n' +
       '*Address:* update address 12-3, Abids Road, Hyderabad 500001\n' +
-      '*UPI:* update upi myshop@okhdfcbank (adds a pay QR on bills)\n' +
+      '*UPI:* update upi myshop@upi (adds a pay QR on bills)\n' +
       '*Phone / email / name:* update phone 9876543210 · update email … · update shop name …\n' +
       '*Logo:* send a photo with the caption *logo*\n' +
       '*Dashboard:* send *dashboard* for sales, stock, bills, exports and shop settings (invoice prefix, bank details, logo) on the web\n' +
