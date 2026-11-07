@@ -33,6 +33,8 @@ for f in supabase/migrations/*.sql; do
   psql "$ADMIN_DB_URL" -qX -v ON_ERROR_STOP=1 -f "$f"
 done
 psql "$ADMIN_DB_URL" -qX -v ON_ERROR_STOP=1 -c "alter role app_engine password 'app_engine_local'"
+# Tests send many messages from one number in seconds: lift the loop breaker (its own test sets it back to 8)
+psql "$ADMIN_DB_URL" -qX -v ON_ERROR_STOP=1 -c "update platform_settings set value = jsonb_set(value, '{max_replies}', '10000') where key = 'reply_guard'"
 
 ENGINE_URL="${ADMIN_DB_URL/\/\/postgres@/\/\/app_engine:app_engine_local@}"
 echo "ADMIN_DATABASE_URL=$ADMIN_DB_URL"

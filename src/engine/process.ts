@@ -16,6 +16,7 @@ import { enqueue } from '../queue/queue.js';
 import type { InboundMessage } from '../webhook/parse.js';
 import { WhatsAppSendError, type OutboundMessage, type WhatsAppClient } from '../whatsapp/client.js';
 import { resolveSender } from './senders.js';
+import { MUTED_NOTICE } from './replyGuard.js';
 import type { Reply, Router } from './router.js';
 import type { EmailSender } from '../notify/email.js';
 import type { FileStore } from '../documents/fileStore.js';
@@ -56,6 +57,15 @@ export async function processInbound(deps: EngineDeps, p: InboundPayload): Promi
   if (!found.rowCount) return 'already_done';
   const message = found.rows[0].payload as InboundMessage;
 
+  // Blocked by an admin, or muted by the loop breaker: keep the message, send nothing, do no work (no AI)
+  const guard = await withoutTenant(deps.pool, async (tx) => (await tx.query('select app.reply_guard($1) as g', [message.from])).rows[0].g as string | null);
+  if (guard) {
+    await withoutTenant(deps.pool, (tx) => tx.query(
+      "update messages set status = 'processed', processed_at = now(), error = $2 where id = $1 and tenant_id is null and status = 'queued'",
+      [p.message_id, `no reply: number ${guard}`]));
+    return 'processed';
+  }
+
   const sender = await withoutTenant(deps.pool, (tx) => resolveSender(tx, message.from));
 
   // Slow reads (AI, media) happen here, outside any transaction, so no connection is held while waiting.
@@ -64,7 +74,12 @@ export async function processInbound(deps: EngineDeps, p: InboundPayload): Promi
     : undefined;
 
   const run = async (tx: Tx, tenantId: string | null, userId: string | null) => {
-    const replies = await deps.router({ sender, message, tx, messageId: p.message_id, prepared });
+    let replies = await deps.router({ sender, message, tx, messageId: p.message_id, prepared });
+    // Loop breaker: more than 8 replies to this number in 3 minutes with nothing confirmed → stop for an hour.
+    // A shop's own people get one line saying so; anyone else (another bot) gets nothing.
+    if ((await tx.query('select app.reply_loop_check($1, $2) as muted', [message.from, replies.length])).rows[0].muted) {
+      replies = sender.kind === 'unknown' ? [] : [{ kind: 'text', text: MUTED_NOTICE }];
+    }
     const upd = await tx.query(
       `update messages set tenant_id = $2, user_id = $3, status = 'processed', processed_at = now()
         where id = $1 and tenant_id is null and status = 'queued'`, [p.message_id, tenantId, userId]);

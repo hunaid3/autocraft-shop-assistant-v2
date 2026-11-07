@@ -367,8 +367,9 @@
   // ── Admin tab (AutoCraft team only) ──────────────────────────────────────
   async function loadAdmin() {
     const per = '?period=' + PERIOD;
-    const [sum, shops, support, jobs, pays, use] = await Promise.all([json('/admin/summary' + per), json('/admin/shops'), json('/admin/support?status=open'),
-      json('/admin/jobs'), json('/admin/payments' + per), json('/admin/usage' + per)]);
+    const [sum, shops, support, jobs, pays, use, nums] = await Promise.all([json('/admin/summary' + per), json('/admin/shops'), json('/admin/support?status=open'),
+      json('/admin/jobs'), json('/admin/payments' + per), json('/admin/usage' + per), json('/admin/numbers')]);
+    const mutedNow = nums.rows.filter((r) => r.kind === 'muted' && Date.parse(r.until) > Date.now());
     const tile = (l, v, n, alert) => `<div class="kpi${alert ? ' alert' : ''}"><div class="l">${esc(l)}</div><div class="v">${esc(v)}</div><div class="n">${esc(n)}</div></div>`;
     const totalAi = use.rows.reduce((a, r) => a + Number(r.ai_cost_paise), 0);
     const STATUS_TAG = { active: 'ok', suspended: 'out', closed: 'cancelled' };
@@ -421,6 +422,17 @@
         { h: 'Credits used', r: 1, f: (u) => u.credits_used }
       ], use.rows, 'No shops yet.') +
       `<div class="note">AI cost uses $${use.prices.usd_per_m_input} / $${use.prices.usd_per_m_output} per million tokens (input / output) at ₹${use.prices.inr_per_usd} per dollar. Replies inside the 24-hour chat window are free on WhatsApp; paid templates are counted separately.</div>` +
+      `<h3>Blocked and paused numbers <small>· ${nums.rows.filter((r) => r.kind === 'blocked').length} blocked · ${mutedNow.length} paused now</small></h3>` +
+      '<div class="tools"><input type="search" id="blockPhone" placeholder="Number to block, e.g. 919876543210" aria-label="Number to block" inputmode="tel">' +
+      '<button class="csv" data-block="1">Block number</button></div>' + table([
+        { h: 'Number', f: (r) => `+${esc(r.phone)}` + (r.shop ? `<div class="muted small">${esc(r.shop)}</div>` : '') },
+        { h: 'Status', f: (r) => (r.kind === 'blocked' ? '<span class="tag cancelled">blocked</span>'
+          : Date.parse(r.until) > Date.now() ? `<span class="tag out">paused till ${new Date(r.until).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</span>` : '<span class="tag">was paused</span>') },
+        { h: 'Why', f: (r) => esc(r.reason || '') + (r.kind === 'muted' ? `<div class="muted small">${r.replies} replies in 3 min · ${plural(r.times, 'time', 'times')}</div>` : '') },
+        { h: 'Since', f: (r) => fdate(r.created_at, true) },
+        { h: '', r: 1, f: (r) => (r.kind === 'blocked' || Date.parse(r.until) > Date.now() ? `<button class="pdf" data-unblock="${esc(r.phone)}">${r.kind === 'blocked' ? 'Unblock' : 'Resume replies'}</button>` : '') }
+      ], nums.rows, 'None. Numbers you block, and numbers the loop breaker pauses (more than 8 replies in 3 minutes with nothing confirmed), show here.') +
+      '<div class="note">A blocked number never gets a reply. Numbers that are not shops get the welcome card at most once a day, and bank alerts, OTPs and adverts get no reply. Their messages are still kept.</div>' +
       `<h3>Failed jobs <small>· ${jobs.rows.length}</small></h3>` + table([
         { h: 'Job', f: (j) => `#${j.id} ${esc(j.queue)}` },
         { h: 'When', f: (j) => fdate(j.created_at, true) },
@@ -517,6 +529,18 @@
       if (reason === null) return;
       try { await json(`/admin/shops/${t.dataset.shop}/status`, { method: 'POST', body: JSON.stringify({ status: t.dataset.status, reason }) }); }
       catch (err) { showError(err); }
+      return loadAdmin();
+    }
+    if (t.dataset.block) {
+      const phone = $('blockPhone').value.trim();
+      if (!phone) return;
+      const reason = prompt(`Block ${phone}? It will never get a reply. Reason (kept in the log):`, 'Spam / automated messages');
+      if (reason === null) return;
+      try { await json('/admin/numbers/block', { method: 'POST', body: JSON.stringify({ phone, reason }) }); } catch (err) { showError(err); }
+      return loadAdmin();
+    }
+    if (t.dataset.unblock) {
+      try { await json(`/admin/numbers/${t.dataset.unblock}/unblock`, { method: 'POST', body: '{}' }); } catch (err) { showError(err); }
       return loadAdmin();
     }
     if (t.dataset.rmstaff) {

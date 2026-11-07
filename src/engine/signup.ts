@@ -5,6 +5,7 @@
  * The shop is created by app.provision_tenant: settings, owner membership, wallet and welcome credits.
  * (A WhatsApp Flows form can replace these questions later; the creation step stays the same.)
  */
+import { GREETING, looksAutomated } from './replyGuard.js';
 import type { Tx } from '../db/tenantTx.js';
 import { checkGstin } from '../domain/gstin.js';
 import { normKey } from '../domain/itemMatch.js';
@@ -90,7 +91,8 @@ export async function extraShopPending(tx: Tx, phone: string): Promise<boolean> 
 
 export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Promise<Reply[]> {
   const { rows: [s] } = await tx.query(
-    'select step, answers, expires_at < now() as expired from signup_sessions where phone = $1 for update', [phone]);
+    `select step, answers, expires_at < now() as expired, coalesce(intro_sent_at > now() - interval '24 hours', false) as intro_recent
+       from signup_sessions where phone = $1 for update`, [phone]);
   const save = (step: Step, a: Answers) => tx.query(
     `insert into signup_sessions (phone, step, answers, expires_at) values ($1, $2, $3, now() + interval '24 hours')
      on conflict (phone) do update set step = excluded.step, answers = excluded.answers, expires_at = excluded.expires_at`,
@@ -104,10 +106,20 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
 
   const wantsStart = id(m) === 'START' || said(m, /^(start|start free|register|sign ?up|join|yes|create shop)$/);
   const introCard = async () => buttons(intro(await bonusFor(tx, phone)), [['START', '🚀 Start'], ['NOTNOW', 'Not now']]);
+  // The welcome card goes out at most once a day, unless the person greets us or taps a button: banks,
+  // adverts and other bots that keep messaging get silence instead of a card each time.
+  const notTalkingToUs = !wantsStart && m.kind !== 'button' && !GREETING.test(m.text ?? '');
+  const atIntro = !s || s.expired || s.step === 'intro';
+  if (atIntro && m.kind === 'text' && looksAutomated(m.text)) return [];
+  if (atIntro && notTalkingToUs && s?.intro_recent) return [];
+  const sendIntro = async () => {
+    await save('intro', {});
+    await tx.query('update signup_sessions set intro_sent_at = now() where phone = $1', [phone]);
+    return [await introCard()];
+  };
   if (!s || s.expired) {
     if (wantsStart) { await save('name', {}); return [text(ASK_NAME)]; }
-    await save('intro', {});
-    return [await introCard()];
+    return sendIntro();
   }
 
   const a = s.answers as Answers;
@@ -119,7 +131,7 @@ export async function signupRoute(tx: Tx, phone: string, m: InboundMessage): Pro
   switch (s.step as Step) {
     case 'intro':
       if (wantsStart) { await save('name', {}); return [text(ASK_NAME)]; }
-      return [await introCard()];
+      return sendIntro();
 
     case 'name': {
       if (m.kind !== 'text' || value.length < 2) return [text(ASK_NAME)];

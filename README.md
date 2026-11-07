@@ -157,6 +157,12 @@ Phase 2, slice 1 (core loop):
       pause / reactivate a shop (its people get a "paused" reply, its dashboard sessions end, data kept); people per shop and
       remove a staff member (a waiting invite is refunded); CSV of shops, payments and usage. All actions in `audit_log`
       with `actor_kind = 'admin'`. AI token counts per call in `ai_usage`.
+- [x] **Reply guard** for the shared number: numbers that aren't shops get the welcome card at most once a day (then
+      only a greeting, *start* or a button gets a reply); OTPs, bank alerts and adverts from such numbers get no reply;
+      loop breaker: more than 8 replies to one number in 3 minutes with no progress (nothing confirmed, no sign-up step,
+      no setting changed) pauses replies to it for an hour (`reply_mutes`, settings in `platform_settings.reply_guard`;
+      a shop's own number gets one line saying so); admin block list (`blocked_numbers`). Blocked, paused and ignored
+      messages are still stored. Admin tab lists them with Unblock / Resume.
 - [ ] Before launch: CA review of the PDF layout
 
 ## WhatsApp (Meta Cloud API)

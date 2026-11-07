@@ -83,6 +83,23 @@ export function registerAdmin(app: FastifyInstance, deps: {
         d10(s.created_at), d10(s.last_message_at), s.open_support])));
   });
 
+  // Reply guard: blocked and muted numbers
+  app.get('/api/admin/numbers', { preHandler: adminOnly }, async () => ({ rows: await q('select * from app.admin_reply_guard_list()') }));
+  app.post('/api/admin/numbers/block', { preHandler: adminOnly }, async (req, reply) => {
+    const b = (req.body ?? {}) as { phone?: unknown; reason?: unknown };
+    const digits = String(b.phone ?? '').replace(/\D/g, '');
+    const phone = digits.length === 10 ? '91' + digits : digits;
+    if (!/^[1-9]\d{9,14}$/.test(phone)) return reply.code(400).send({ error: 'Enter the WhatsApp number with country code, e.g. 919876543210' });
+    await q('select app.admin_block_number($1, $2, $3)', [phone, typeof b.reason === 'string' ? b.reason.slice(0, 300) : null, req.session!.userId]);
+    return { ok: true, phone };
+  });
+  app.post('/api/admin/numbers/:phone/unblock', { preHandler: adminOnly }, async (req, reply) => {
+    const { phone } = req.params as { phone: string };
+    if (!/^\d{10,15}$/.test(phone)) return reply.code(404).send({ error: 'not found' });
+    const [r] = await q<{ ok: boolean }>('select app.admin_unblock_number($1, $2) as ok', [phone, req.session!.userId]);
+    return { ok: r!.ok };
+  });
+
   // Shop controls
   app.get('/api/admin/shops/:id/people', { preHandler: adminOnly }, async (req, reply) => {
     const { id } = req.params as { id: string };
